@@ -1,50 +1,57 @@
-import { useState } from "react";
-import reactLogo from "./assets/react.svg";
+import { useEffect, useState } from "react";
+import { Navigate, RouterProvider, createHashRouter } from "react-router-dom";
 import { invoke } from "@tauri-apps/api/core";
-import "./App.css";
+import { Activacion } from "@/pages/Activacion";
+import type { LicenseStatus } from "@/types";
+
+import { AppLayout } from "@/components/layout/AppLayout";
+import { Catalogo } from "@/pages/Catalogo";
+import { Configuracion } from "@/pages/Configuracion";
+import { Dashboard } from "@/pages/Dashboard";
+import { Movimientos } from "@/pages/Movimientos";
+import { Onboarding } from "@/pages/Onboarding";
+import { ProductoDetalle } from "@/pages/ProductoDetalle";
+import { ProductoForm } from "@/pages/ProductoForm";
+import { Tiendanube } from "@/pages/Tiendanube";
+
+const router = createHashRouter([
+  {
+    path: "/",
+    element: <AppLayout />,
+    children: [
+      { index: true, element: <Navigate replace to="/dashboard" /> },
+      { path: "/onboarding", element: <Onboarding /> },
+      { path: "/dashboard", element: <Dashboard /> },
+      { path: "/catalogo", element: <Catalogo /> },
+      { path: "/producto/nuevo", element: <ProductoForm /> },
+      { path: "/producto/:inventarioId/editar", element: <ProductoForm /> },
+      { path: "/producto/:inventarioId", element: <ProductoDetalle /> },
+      { path: "/movimientos", element: <Movimientos /> },
+      { path: "/tiendanube", element: <Tiendanube /> },
+      { path: "/configuracion", element: <Configuracion /> },
+    ],
+  },
+]);
+
+import { ThemeProvider } from "@/components/shared/ThemeProvider";
 
 function App() {
-  const [greetMsg, setGreetMsg] = useState("");
-  const [name, setName] = useState("");
+  const [license, setLicense] = useState<LicenseStatus | null>(null);
 
-  async function greet() {
-    // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-    setGreetMsg(await invoke("greet", { name }));
+  useEffect(() => {
+    void invoke<LicenseStatus>("get_license_status").then(setLicense);
+  }, []);
+
+  if (!license) return <div className="p-10 text-center text-muted-foreground flex items-center justify-center min-h-screen">Cargando motor offline...</div>;
+
+  if (!license.isValid) {
+    return <Activacion initialStatus={license} onActivated={() => invoke<LicenseStatus>("get_license_status").then(setLicense)} />;
   }
 
   return (
-    <main className="container">
-      <h1>Welcome to Tauri + React</h1>
-
-      <div className="row">
-        <a href="https://vite.dev" target="_blank">
-          <img src="/vite.svg" className="logo vite" alt="Vite logo" />
-        </a>
-        <a href="https://tauri.app" target="_blank">
-          <img src="/tauri.svg" className="logo tauri" alt="Tauri logo" />
-        </a>
-        <a href="https://react.dev" target="_blank">
-          <img src={reactLogo} className="logo react" alt="React logo" />
-        </a>
-      </div>
-      <p>Click on the Tauri, Vite, and React logos to learn more.</p>
-
-      <form
-        className="row"
-        onSubmit={(e) => {
-          e.preventDefault();
-          greet();
-        }}
-      >
-        <input
-          id="greet-input"
-          onChange={(e) => setName(e.currentTarget.value)}
-          placeholder="Enter a name..."
-        />
-        <button type="submit">Greet</button>
-      </form>
-      <p>{greetMsg}</p>
-    </main>
+    <ThemeProvider>
+      <RouterProvider router={router} />
+    </ThemeProvider>
   );
 }
 

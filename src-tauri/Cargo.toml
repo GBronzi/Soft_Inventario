@@ -18,9 +18,16 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
+tauri = { version = "2", features = ["protocol-asset"] }
 tauri-plugin-opener = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tauri-plugin-sql = { version = "2", features = ["sqlite"] }
+tauri-plugin-dialog = "2"
+rsa = "0.9.10"
+base64 = "0.22.1"
+sha2 = { version = "0.10.9", features = ["oid"] }
+tauri-plugin-log = "2.0.0-rc"
+tauri-plugin-http = "2"
+tauri-plugin-deep-link = "2"
 
