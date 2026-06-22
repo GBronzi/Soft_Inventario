@@ -27,7 +27,9 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { onOpenUrl } from "@tauri-apps/plugin-deep-link";
 
 // URL de autorización de Tiendanube — reemplaza con la URL real de tu bridge Vercel si la tienes
-const TIENDANUBE_AUTH_URL = "https://www.tiendanube.com/apps/28338/authorize";
+const TIENDANUBE_AUTH_URL = "https://www.tiendanube.com/apps/28338/authorize?client_id=28338&response_type=code&redirect_uri=https%3A%2F%2FGBronzi.github.io%2FSoft_Inventario%2Ftiendanube_redirect.html&scope=read_products%20write_products";
+// URL del bridge Vercel para intercambiar el código por token de acceso
+const BRIDGE_URL = "https://vercel-bridge-5fpy4bubs-mauricios-projects-45a56444.vercel.app/api/auth";
 
 export function Tiendanube() {
   const [status, setStatus] = useState<TiendanubeSyncStatus | null>(null);
@@ -44,18 +46,31 @@ export function Tiendanube() {
     void loadStatus();
 
     // Escuchar el deep link cuando Tiendanube redirige de vuelta a la app
-    const unlisten = onOpenUrl((urls) => {
+    const unlisten = onOpenUrl(async (urls) => {
       for (const url of urls) {
         try {
           const parsed = new URL(url);
           if (parsed.hostname === "auth") {
-            const token = parsed.searchParams.get("token");
+            const code = parsed.searchParams.get("code");
             const userId = parsed.searchParams.get("user_id");
-            if (token && userId) {
-              saveTiendanubeCredentials({ accessToken: token, userId });
-              void loadStatus();
-              setIsLinking(false);
-              setSyncLogs([`[${new Date().toLocaleTimeString()}] ✅ Tienda vinculada exitosamente (ID: ${userId})`]);
+            if (code && userId) {
+              // Intercambiar código por token usando el bridge Vercel
+              const resp = await fetch(BRIDGE_URL, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ client_id: "28338", code })
+              });
+              if (!resp.ok) {
+                throw new Error(`Bridge error: ${resp.status}`);
+              }
+              const data = await resp.json();
+              const token = data.access_token ?? data.token;
+              if (token) {
+                saveTiendanubeCredentials({ accessToken: token, userId });
+                void loadStatus();
+                setIsLinking(false);
+                setSyncLogs([`[${new Date().toLocaleTimeString()}] ✅ Tienda vinculada exitosamente (ID: ${userId})`]);
+              }
             }
           }
         } catch { /* URL inválida, ignorar */ }
@@ -151,7 +166,7 @@ export function Tiendanube() {
               ) : (
                 <div className="space-y-4">
                   <p className="text-sm text-muted-foreground leading-relaxed">
-                    Vincula tu tienda con un solo clic. Se abrirá el navegador para que autorices el acceso, y tu tienda quedará conectada automáticamente.
+                    Vincula tu tienda con un solo clic. Se abrirá el navegador para que autorices el acceso, y tu tienda quedará conectada automáticamente. El propietario de la tienda sólo necesita iniciar sesión en Tiendanube; no se requiere crear una cuenta de Partners.
                   </p>
                   <Button
                     onClick={handleConnect}
