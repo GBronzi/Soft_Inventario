@@ -13,6 +13,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Link, useSearchParams } from "react-router-dom";
+import { useTiendanubeDeepLink } from "@/hooks/useTiendanubeDeepLink";
 import type { LicenseStatus } from "@/types";
 interface Props {
   initialStatus: LicenseStatus;
