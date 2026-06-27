@@ -24,9 +24,11 @@ export function useTiendanubeDeepLink(onToken: (token: string) => void) {
 
     // Production: listen for the custom protocol event emitted by Tauri.
     const unlisten = listen<string>("tauri://protocol", async (event) => {
+      console.log('Deep link event payload:', event.payload);
       const url = new URL(event.payload);
       const code = url.searchParams.get("code");
       const userId = url.searchParams.get("user_id");
+      console.log('Extracted code:', code, 'userId:', userId);
       if (code && userId) {
         const resp = await exchangeCode(code, userId);
         onToken(resp.access_token);
