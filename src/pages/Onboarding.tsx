@@ -105,12 +105,12 @@ export function Onboarding() {
                     <h2 className="text-3xl font-black tracking-tight">¿Listo para empezar?</h2>
                     <p className="opacity-80 font-medium">Comienza cargando tu primer producto para habilitar todas las funciones del tablero.</p>
                     <div className="flex gap-3">
-                       <Button asChild className="rounded-2xl h-12 px-8 bg-white text-primary font-black hover:bg-white/90 shadow-xl">
+                       <Button className="rounded-2xl h-12 px-8 bg-white text-primary font-black hover:bg-white/90 shadow-xl">
                           <Link to="/producto/nuevo" className="flex items-center gap-2">
                             Crear Producto <PlusCircle className="size-4" />
                           </Link>
                        </Button>
-                       <Button asChild variant="ghost" className="rounded-2xl h-12 text-white hover:bg-white/10 font-bold border border-white/20">
+                       <Button variant="ghost" className="rounded-2xl h-12 text-white hover:bg-white/10 font-bold border border-white/20">
                           <Link to="/catalogo">Explorar Catálogo</Link>
                        </Button>
                     </div>
