@@ -2,30 +2,25 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8">
-  <title>Tiendanube → Soft Inventario</title>
-  <style>
-    body {font-family: system-ui, sans-serif; text-align:center; padding:2rem;}
-    .msg {margin-top:2rem; color:#555;}
-  </style>
-</head>
-<body>
-  <h1>Redirigiendo…</h1>
-  <p class="msg">Cargando autorización, por favor espere.</p>
-
+  <title>Tiendanube redirect</title>
   <script>
-    // Extraer parámetros devueltos por Tiendanube
+    // Extrae los parámetros que Tiendanube envía (code, user_id, state)
     const params = new URLSearchParams(window.location.search);
     const code = params.get('code');
     const userId = params.get('user_id');
+    const state = params.get('state');
 
     if (code && userId) {
-      // Construir deep‑link al esquema de la app Tauri
-      const deepLink = `soft-inventario://auth?code=${encodeURIComponent(code)}&user_id=${encodeURIComponent(userId)}`;
-      // Redirigir al esquema
-      window.location.href = deepLink;
+      // Redirige a la app Tauri mediante el esquema personalizado
+      const redirect = `soft-inventario://auth?code=${encodeURIComponent(code)}&user_id=${encodeURIComponent(userId)}${state ? `&state=${encodeURIComponent(state)}` : ''}`;
+      window.location.replace(redirect);
     } else {
-      document.querySelector('.msg').textContent = 'Faltan parámetros de autorización. Intente nuevamente.';
+      // Si faltan parámetros, muestra un mensaje de ayuda
+      document.body.innerHTML = '<p>Parámetros de autorización faltantes.</p>';
     }
   </script>
+</head>
+<body>
+  <p>Redirigiendo…</p>
 </body>
 </html>
