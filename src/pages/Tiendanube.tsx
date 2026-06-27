@@ -113,8 +113,18 @@ export function Tiendanube() {
     }
   }
 
-  // Recuperar userId para mostrar
-  const creds = status?.connected ? getTiendanubeCredentials() : null;
+const [creds, setCreds] = useState<any>(null);
+
+  useEffect(() => {
+    if (status?.connected) {
+      (async () => {
+        const c = await getTiendanubeCredentials();
+        setCreds(c);
+      })();
+    } else {
+      setCreds(null);
+    }
+  }, [status?.connected]);
 
   if (!status) return (
     <div className="p-20 text-center animate-pulse text-muted-foreground uppercase tracking-widest font-black">

@@ -13,7 +13,7 @@ import {
   Settings
 } from "lucide-react";
 
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { getConfiguracionEmpresa } from "@/database/queries";
 
@@ -140,7 +140,7 @@ export function Onboarding() {
                        <span className="font-black truncate max-w-[100px]">{empresa.logoPathLocal ? "CARGADO" : "PENDIENTE"}</span>
                     </div>
                  </div>
-                 <Button asChild variant="outline" className="w-full rounded-2xl h-11 font-bold gap-2 text-xs border-border/50">
+                 <Button variant="outline" className="w-full rounded-2xl h-11 font-bold gap-2 text-xs border-border/50">
                     <Link to="/configuracion"><Settings className="size-3" /> Ajustes de Empresa</Link>
                  </Button>
               </CardContent>

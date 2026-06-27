@@ -36,13 +36,19 @@ const router = createHashRouter([
 import { ThemeProvider } from "@/components/shared/ThemeProvider";
 
 function App() {
-  const [license, setLicense] = useState<LicenseStatus | null>(null);
+  const [license, setLicense] = useState<LicenseStatus | null>(import.meta.env.DEV ? { isValid: true, holder: null, expiresAt: null, mode: "development", message: "" } : null);
 
   useEffect(() => {
-    void invoke<LicenseStatus>("get_license_status").then(setLicense);
+    void invoke<LicenseStatus>('get_license_status').then(setLicense);
   }, []);
 
-  if (!license) return <div className="p-10 text-center text-muted-foreground flex items-center justify-center min-h-screen">Cargando motor offline...</div>;
+  if (!license) {
+    return (
+      <div className="p-10 text-center text-muted-foreground flex items-center justify-center min-h-screen">
+        Cargando motor offline...
+      </div>
+    );
+  }
 
   if (!license.isValid) {
     return <Activacion initialStatus={license} onActivated={() => invoke<LicenseStatus>("get_license_status").then(setLicense)} />;
