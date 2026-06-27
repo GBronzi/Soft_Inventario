@@ -8,13 +8,24 @@
   <p>Redirigiendo…</p>
   <script>
     // Extrae los parámetros que Tiendanube envía (code, user_id, state)
-    const params = new URLSearchParams(window.location.search);
-    const code = params.get('code');
-    const userId = params.get('user_id');
-    const state = params.get('state');
+    // Se manejan tanto query string como fragmento (hash) porque Tiendanube a veces devuelve los datos en el hash.
+    const url = new URL(window.location.href);
+    const searchParams = new URLSearchParams(url.search);
+    // Si el hash contiene parámetros, los añadimos a searchParams para simplificar la obtención.
+    if (url.hash) {
+      const hashParams = new URLSearchParams(url.hash.substring(1)); // quita '#'
+      hashParams.forEach((value, key) => {
+        if (!searchParams.has(key)) searchParams.append(key, value);
+      });
+    }
+    const code = searchParams.get('code');
+    const userId = searchParams.get('user_id');
+    const state = searchParams.get('state');
+    console.log('Redirect page extracted params:', { code, userId, state });
     if (code && userId) {
       // Redirige a la app Tauri mediante el esquema personalizado
       const redirect = `soft-inventario://auth?code=${encodeURIComponent(code)}&user_id=${encodeURIComponent(userId)}${state ? `&state=${encodeURIComponent(state)}` : ''}`;
+      console.log('Redirecting to Tauri with:', redirect);
       // Navegar al esquema que abre la aplicación Tauri
       window.location.replace(redirect);
       // Intentar cerrar la ventana del navegador después de un breve retraso
