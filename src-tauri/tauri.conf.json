@@ -30,7 +30,9 @@
   "plugins": {
     "sql": {},
     "deep-link": {
-      "schemes": ["soft-inventario"]
+      "desktop": {
+        "schemes": ["soft-inventario"]
+      }
     }
   },
   "bundle": {
