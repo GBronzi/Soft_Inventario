@@ -9,8 +9,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "preview": "vite preview",
-    "tauri": "tauri"
-  },
+    "tauri": "tauri",
+    "deploy": "npm run build && npx gh-pages -d dist",\n  },
   "dependencies": {
     "@base-ui/react": "^1.2.0",
     "@fontsource-variable/geist": "^5.2.8",
@@ -42,6 +42,6 @@
     "tailwindcss": "^4.2.1",
     "typescript": "~5.8.3",
     "vite": "^7.0.4",
-    "vitest": "^3.2.4"
+    "vitest": "^3.2.4",
   }
 }
