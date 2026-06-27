@@ -18,13 +18,16 @@
         if (!searchParams.has(key)) searchParams.append(key, value);
       });
     }
+    // Tiendanube solo envía 'code' (y opcionalmente 'state') al redirect_uri.
+    // El user_id se obtiene luego al intercambiar el code por el access token.
     const code = searchParams.get('code');
     const userId = searchParams.get('user_id');
     const state = searchParams.get('state');
     console.log('Redirect page extracted params:', { code, userId, state });
-    if (code && userId) {
-      // Redirige a la app Tauri mediante el esquema personalizado
-      const redirect = `soft-inventario://auth?code=${encodeURIComponent(code)}&user_id=${encodeURIComponent(userId)}${state ? `&state=${encodeURIComponent(state)}` : ''}`;
+    if (code) {
+      // Redirige a la app Tauri mediante el esquema personalizado.
+      // Se reenvía user_id solo si estuviera presente (forward-compat).
+      const redirect = `soft-inventario://auth?code=${encodeURIComponent(code)}${userId ? `&user_id=${encodeURIComponent(userId)}` : ''}${state ? `&state=${encodeURIComponent(state)}` : ''}`;
       console.log('Redirecting to Tauri with:', redirect);
       // Navegar al esquema que abre la aplicación Tauri
       window.location.replace(redirect);

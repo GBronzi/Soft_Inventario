@@ -26,10 +26,10 @@ import type { TiendanubeSyncStatus } from "@/types";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { onOpenUrl } from "@tauri-apps/plugin-deep-link";
 
-// URL de autorización de Tiendanube — reemplaza con la URL real de tu bridge Vercel si la tienes
-const TIENDANUBE_AUTH_URL = "https://www.tiendanube.com/apps/28338/authorize?client_id=28338&response_type=code&redirect_uri=https%3A%2F%2FGBronzi.github.io%2FSoft_Inventario%2Ftiendanube_redirect.html&scope=read_products%20write_products";
-// URL del bridge Vercel para intercambiar el código por token de acceso
-const BRIDGE_URL = "https://vercel-bridge-5fpy4bubs-mauricios-projects-45a56444.vercel.app/api/auth";
+// URL de autorización de Tiendanube. El redirect_uri apunta directamente al bridge
+// de Vercel, que canjea el code por el token y reenvía a la app vía deep link
+// (soft-inventario://auth?token=...&user_id=...).
+const TIENDANUBE_AUTH_URL = "https://www.tiendanube.com/apps/28338/authorize?client_id=28338&response_type=code&redirect_uri=https%3A%2F%2Fvercel-bridge-5fpy4bubs-mauricios-projects-45a56444.vercel.app%2Fapi%2Fauth&scope=read_products%20write_products";
 
 export function Tiendanube() {
   const [status, setStatus] = useState<TiendanubeSyncStatus | null>(null);
@@ -51,26 +51,18 @@ export function Tiendanube() {
         try {
           const parsed = new URL(url);
           if (parsed.hostname === "auth") {
-            const code = parsed.searchParams.get("code");
+            // El bridge ya canjeó el code y nos reenvía el token y el user_id
+            // (ID de la tienda) directamente en el deep link.
+            const token = parsed.searchParams.get("token") ?? parsed.searchParams.get("access_token");
             const userId = parsed.searchParams.get("user_id");
-            if (code && userId) {
-              // Intercambiar código por token usando el bridge Vercel
-              const resp = await fetch(BRIDGE_URL, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ client_id: "28338", code })
-              });
-              if (!resp.ok) {
-                throw new Error(`Bridge error: ${resp.status}`);
-              }
-              const data = await resp.json();
-              const token = data.access_token ?? data.token;
-              if (token) {
-                saveTiendanubeCredentials({ accessToken: token, userId });
-                void loadStatus();
-                setIsLinking(false);
-                setSyncLogs([`[${new Date().toLocaleTimeString()}] ✅ Tienda vinculada exitosamente (ID: ${userId})`]);
-              }
+            if (token && userId) {
+              saveTiendanubeCredentials({ accessToken: token, userId });
+              void loadStatus();
+              setIsLinking(false);
+              setSyncLogs([`[${new Date().toLocaleTimeString()}] ✅ Tienda vinculada exitosamente (ID: ${userId})`]);
+            } else {
+              setIsLinking(false);
+              setSyncLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ERROR: el deep link no incluyó token o user_id.`]);
             }
           }
         } catch { /* URL inválida, ignorar */ }

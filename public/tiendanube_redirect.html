@@ -4,18 +4,18 @@
   <meta charset="UTF-8">
   <title>Tiendanube redirect</title>
   <script>
-    // Extrae los parámetros que Tiendanube envía (code, user_id, state)
+    // Tiendanube solo envía 'code' (y opcionalmente 'state') al redirect_uri.
+    // El user_id se obtiene luego al intercambiar el code por el access token.
     const params = new URLSearchParams(window.location.search);
     const code = params.get('code');
-    const userId = params.get('user_id');
     const state = params.get('state');
 
-    if (code && userId) {
+    if (code) {
       // Redirige a la app Tauri mediante el esquema personalizado
-      const redirect = `soft-inventario://auth?code=${encodeURIComponent(code)}&user_id=${encodeURIComponent(userId)}${state ? `&state=${encodeURIComponent(state)}` : ''}`;
+      const redirect = `soft-inventario://auth?code=${encodeURIComponent(code)}${state ? `&state=${encodeURIComponent(state)}` : ''}`;
       window.location.replace(redirect);
     } else {
-      // Si faltan parámetros, muestra un mensaje de ayuda
+      // Si falta el code, muestra un mensaje de ayuda
       document.body.innerHTML = '<p>Parámetros de autorización faltantes.</p>';
     }
   </script>
