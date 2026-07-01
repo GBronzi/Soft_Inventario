@@ -6,6 +6,13 @@ CREATE TABLE IF NOT EXISTS productos (
     marca TEXT,
     notas TEXT,
     imagen_path_local TEXT,
+    imagen_url TEXT,
+    seo_titulo TEXT,
+    seo_descripcion TEXT,
+    tags TEXT,
+    publicado INTEGER NOT NULL DEFAULT 1,
+    tn_product_id INTEGER,
+    tn_updated_at TEXT,
     creado_en DATETIME DEFAULT CURRENT_TIMESTAMP,
     actualizado_en DATETIME DEFAULT CURRENT_TIMESTAMP
 );
@@ -25,9 +32,27 @@ CREATE TABLE IF NOT EXISTS inventario (
     lote TEXT,
     vencimiento DATETIME,
     estado TEXT NOT NULL DEFAULT 'ACTIVO',
+    tn_variant_id INTEGER,
     creado_en DATETIME DEFAULT CURRENT_TIMESTAMP,
     actualizado_en DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (producto_id) REFERENCES productos (id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS categorias (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tn_category_id INTEGER,
+    nombre TEXT NOT NULL,
+    tn_parent_id INTEGER,
+    creado_en DATETIME DEFAULT CURRENT_TIMESTAMP,
+    actualizado_en DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS producto_categorias (
+    producto_id INTEGER NOT NULL,
+    categoria_id INTEGER NOT NULL,
+    PRIMARY KEY (producto_id, categoria_id),
+    FOREIGN KEY (producto_id) REFERENCES productos (id) ON DELETE CASCADE,
+    FOREIGN KEY (categoria_id) REFERENCES categorias (id) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS movimientos_stock (
@@ -65,10 +90,39 @@ CREATE TABLE IF NOT EXISTS configuracion_empresa (
     actualizada_en DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS contactos (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    nombre TEXT NOT NULL,
+    apellidos TEXT,
+    empresa TEXT,
+    cargo TEXT,
+    email TEXT,
+    email_alternativo TEXT,
+    telefono TEXT,
+    telefono_alternativo TEXT,
+    direccion TEXT,
+    ciudad TEXT,
+    provincia TEXT,
+    codigo_postal TEXT,
+    pais TEXT,
+    sitio_web TEXT,
+    fecha_nacimiento TEXT,
+    notas TEXT,
+    creado_en DATETIME DEFAULT CURRENT_TIMESTAMP,
+    actualizado_en DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE INDEX IF NOT EXISTS idx_productos_nombre ON productos (nombre);
 CREATE INDEX IF NOT EXISTS idx_productos_categoria ON productos (categoria);
 CREATE INDEX IF NOT EXISTS idx_productos_marca ON productos (marca);
 CREATE INDEX IF NOT EXISTS idx_inventario_producto_id ON inventario (producto_id);
 CREATE INDEX IF NOT EXISTS idx_inventario_codigo_barras ON inventario (codigo_barras);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_productos_tn_product_id ON productos (tn_product_id) WHERE tn_product_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_inventario_tn_variant_id ON inventario (tn_variant_id) WHERE tn_variant_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_categorias_tn_category_id ON categorias (tn_category_id) WHERE tn_category_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_producto_categorias_categoria ON producto_categorias (categoria_id);
 CREATE INDEX IF NOT EXISTS idx_movimientos_inventario_fecha ON movimientos_stock (inventario_id, fecha_movimiento DESC);
 CREATE INDEX IF NOT EXISTS idx_plantillas_movimientos_inventario ON plantillas_movimientos (inventario_id, actualizado_en DESC);
+CREATE INDEX IF NOT EXISTS idx_contactos_nombre ON contactos (nombre, apellidos);
+CREATE INDEX IF NOT EXISTS idx_contactos_email ON contactos (email);
+CREATE INDEX IF NOT EXISTS idx_contactos_telefono ON contactos (telefono);

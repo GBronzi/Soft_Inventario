@@ -27,8 +27,10 @@ import {
   getInventarioMovimientoOptions,
   getMovimientos,
   getMovimientosByInventarioId,
+  notifyMonthlySalesUpdate,
   registrarMovimientoStock,
 } from "@/database/queries";
+import { pushInventarioIdATiendanube } from "@/api/tiendanube";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import {
   buildRepeatMovimientoRoute,
@@ -139,11 +141,17 @@ export function Movimientos() {
         motivo: form.motivo,
         referencia: form.referencia,
       });
+      try {
+        await pushInventarioIdATiendanube(Number(form.inventarioId));
+      } catch (syncErr) {
+        console.warn("No se pudo sincronizar el stock con Tiendanube:", syncErr);
+      }
       setForm(prev => ({ ...prev, cantidad: "1", motivo: "", referencia: "" }));
       setProductSearch("");
       setStatus("Movimiento registrado con éxito");
-      // Recargar historial
+      // Recargar historial y notificar al dashboard para refrescar ventas
       setHistoryFilters(prev => ({ ...prev }));
+      notifyMonthlySalesUpdate();
     } catch (err: any) {
       const msg = err?.message || (typeof err === 'string' ? err : JSON.stringify(err));
       setStatus(`Error: ${msg}`);

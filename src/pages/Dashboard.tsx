@@ -1,15 +1,28 @@
 import { invoke } from "@tauri-apps/api/core";
-import { Boxes, ClipboardList, PackageSearch, TriangleAlert } from "lucide-react";
+import { Boxes, ClipboardList, History, PackageSearch, ShoppingCart, TriangleAlert, Wallet } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { AlertaStockList } from "@/components/shared/AlertaStockList";
+import { EscanerBluetoothPanel } from "@/components/shared/EscanerBluetoothPanel";
 import { ResumenCard } from "@/components/shared/ResumenCard";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { getDashboardOverview, getLowStockAlerts, getRecentMovimientos } from "@/database/queries";
+import { getDashboardOverview, getLowStockAlerts, getRecentMovimientos, MONTHLY_SALES_UPDATED_EVENT } from "@/database/queries";
+import { TIENDANUBE_SYNCED_EVENT } from "@/hooks/useTiendanubeSync";
 import { buildMovimientosRoute, buildRepeatMovimientoRoute, buildVentaRapidaRoute } from "@/lib/movimientos";
-import type { DashboardStats, LicenseStatus, MovimientoListado, StockAlert } from "@/types";
+import type { DashboardStats, GastoRegistro, LicenseStatus, MovimientoListado, StockAlert } from "@/types";
+
+const GASTOS_STORAGE_KEY = "soft_inventario_gastos";
+const VENTAS_STORAGE_KEY = "soft_inventario_ventas_mensuales";
+
+type MonthlyDashboardSummary = {
+  mes: string;
+  gastos: number;
+  ventas: number;
+  ganancia: number;
+  registros: number;
+};
 
 const initialStats: DashboardStats = {
   totalProductos: 0,
@@ -18,6 +31,7 @@ const initialStats: DashboardStats = {
   variantesBajoStock: 0,
   movimientosHoy: 0,
   totalInvertido: 0,
+  totalVentasSalidas: 0,
 };
 
 function getTodayDateParam() {
@@ -26,12 +40,66 @@ function getTodayDateParam() {
   return localTime.toISOString().slice(0, 10);
 }
 
+function readStoredGastos(): GastoRegistro[] {
+  if (typeof window !== "undefined" && window.localStorage) {
+    try {
+      const raw = window.localStorage.getItem(GASTOS_STORAGE_KEY);
+      if (!raw) return [];
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+
+  if (typeof globalThis !== "undefined" && "localStorage" in globalThis) {
+    try {
+      const raw = globalThis.localStorage.getItem(GASTOS_STORAGE_KEY);
+      if (!raw) return [];
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+
+  return [];
+}
+
+function readStoredVentas(): Record<string, number> {
+  if (typeof window !== "undefined" && window.localStorage) {
+    try {
+      const raw = window.localStorage.getItem(VENTAS_STORAGE_KEY);
+      if (!raw) return {};
+      const parsed = JSON.parse(raw);
+      return parsed && typeof parsed === "object" ? parsed : {};
+    } catch {
+      return {};
+    }
+  }
+
+  if (typeof globalThis !== "undefined" && "localStorage" in globalThis) {
+    try {
+      const raw = globalThis.localStorage.getItem(VENTAS_STORAGE_KEY);
+      if (!raw) return {};
+      const parsed = JSON.parse(raw);
+      return parsed && typeof parsed === "object" ? parsed : {};
+    } catch {
+      return {};
+    }
+  }
+
+  return {};
+}
+
 export function Dashboard() {
   const navigate = useNavigate();
   const [stats, setStats] = useState(initialStats);
   const [alerts, setAlerts] = useState<StockAlert[]>([]);
   const [movimientos, setMovimientos] = useState<MovimientoListado[]>([]);
   const [license, setLicense] = useState<LicenseStatus | null>(null);
+  const [monthlySummary, setMonthlySummary] = useState<MonthlyDashboardSummary | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
   const todayDateParam = getTodayDateParam();
 
   const currencyFormatter = new Intl.NumberFormat("es-AR", {
@@ -49,25 +117,67 @@ export function Dashboard() {
         invoke<LicenseStatus>("get_license_status"),
       ]);
 
+      const gastos = readStoredGastos();
+      const ventasMensuales = readStoredVentas();
+      const monthMap = new Map<string, { mes: string; gastos: number; registros: number }>();
+
+      gastos.forEach((gasto) => {
+        const mes = gasto.fecha.slice(0, 7);
+        const entry = monthMap.get(mes) ?? { mes, gastos: 0, registros: 0 };
+        entry.gastos += gasto.total;
+        entry.registros += 1;
+        monthMap.set(mes, entry);
+      });
+
+      const currentMonth = new Date().toISOString().slice(0, 7);
+      const currentEntry = monthMap.get(currentMonth);
+      const currentSummary = currentEntry ? {
+        mes: currentMonth,
+        gastos: currentEntry.gastos,
+        ventas: ventasMensuales[currentMonth] ?? 0,
+        ganancia: (ventasMensuales[currentMonth] ?? 0) - currentEntry.gastos,
+        registros: currentEntry.registros,
+      } : {
+        mes: currentMonth,
+        gastos: 0,
+        ventas: ventasMensuales[currentMonth] ?? 0,
+        ganancia: (ventasMensuales[currentMonth] ?? 0),
+        registros: 0,
+      };
+
       setStats(dashboard);
       setAlerts(lowStock);
       setMovimientos(recentMovements);
       setLicense(licenseStatus);
+      setMonthlySummary(currentSummary);
     }
 
     void load();
+  }, [refreshKey]);
+
+  useEffect(() => {
+    const onSynced = () => {
+      setRefreshKey((k) => k + 1);
+    };
+    window.addEventListener(TIENDANUBE_SYNCED_EVENT, onSynced);
+    window.addEventListener(MONTHLY_SALES_UPDATED_EVENT, onSynced);
+    return () => {
+      window.removeEventListener(TIENDANUBE_SYNCED_EVENT, onSynced);
+      window.removeEventListener(MONTHLY_SALES_UPDATED_EVENT, onSynced);
+    };
   }, []);
 
   return (
     <div className="space-y-8 animate-in fade-in duration-500">
+      <EscanerBluetoothPanel />
       <section>
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
           <ResumenCard className="border-l-4 border-l-blue-500 shadow-sm hover:shadow-md transition-shadow" actionLabel="Abrir catálogo" description="Productos activos" icon={<Boxes className="size-5 text-blue-500" />} onClick={() => navigate("/catalogo")} title="Productos" value={stats.totalProductos} />
-          <ResumenCard className="border-l-4 border-l-purple-500 shadow-sm hover:shadow-md transition-shadow" actionLabel="Ver variantes" description="Presentaciones" icon={<Boxes className="size-5 text-purple-500" />} onClick={() => navigate("/catalogo")} title="Variantes" value={stats.totalVariantes} />
+          <ResumenCard className="border-l-4 border-l-purple-500 shadow-sm hover:shadow-md transition-shadow" actionLabel="Ver productos con variantes" description="Presentaciones" icon={<Boxes className="size-5 text-purple-500" />} onClick={() => navigate("/catalogo")} title="Con variantes" value={stats.totalVariantes} />
           <ResumenCard className="border-l-4 border-l-emerald-500 shadow-sm hover:shadow-md transition-shadow" actionLabel="Revisar stock" description="Unidades totales" icon={<PackageSearch className="size-5 text-emerald-500" />} onClick={() => navigate("/catalogo?estado=ACTIVO")} title="Stock total" value={stats.stockTotal} />
           <ResumenCard className="border-l-4 border-l-rose-500 shadow-sm hover:shadow-md transition-shadow" actionLabel="Ver bajo stock" description="Reponer urgente" icon={<TriangleAlert className="size-5 text-rose-500" />} onClick={() => navigate("/catalogo?bajoStock=1")} title="Bajo stock" value={stats.variantesBajoStock} />
           <ResumenCard className="border-l-4 border-l-amber-500 shadow-sm hover:shadow-md transition-shadow" actionLabel="Ver hoy" description="Movimientos" icon={<ClipboardList className="size-5 text-amber-500" />} onClick={() => navigate(`/movimientos?fechaDesde=${todayDateParam}&fechaHasta=${todayDateParam}`)} title="Hoy" value={stats.movimientosHoy} />
-          <ResumenCard className="border-l-4 border-l-indigo-500 shadow-sm hover:shadow-md transition-shadow" actionLabel="Analizar" description="Valor al costo" icon={<PackageSearch className="size-5 text-indigo-500" />} onClick={() => navigate("/catalogo")} title="Capital" value={currencyFormatter.format(stats.totalInvertido).replace("ARS", "$")} />
+          <ResumenCard className="border-l-4 border-l-indigo-500 shadow-sm hover:shadow-md transition-shadow" valueClassName="break-words text-2xl leading-tight tabular-nums" actionLabel="Historial de salidas" description="Ventas por movimientos de salida" icon={<ShoppingCart className="size-5 text-indigo-500" />} onClick={() => navigate("/movimientos?tipoMovimiento=SALIDA")} title="Ventas" value={currencyFormatter.format(stats.totalVentasSalidas).replace("ARS", "$")} />
         </div>
       </section>
 
@@ -98,6 +208,45 @@ export function Dashboard() {
         />
 
         <div className="space-y-6">
+          <Card className="overflow-hidden rounded-2xl border border-primary/10 bg-gradient-to-br from-primary/10 via-background to-background shadow-lg">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <History className="size-4 text-primary" />
+                Historial por mes
+              </CardTitle>
+              <CardDescription>Resumen rápido de gastos, ventas y ganancia del mes actual.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="rounded-2xl border border-border/50 bg-background/70 p-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">{monthlySummary?.mes ?? "—"}</p>
+                    <p className="text-lg font-black">{currencyFormatter.format(monthlySummary?.gastos ?? 0)}</p>
+                  </div>
+                  <div className="rounded-full bg-amber-500/10 p-2 text-amber-600">
+                    <Wallet className="size-4" />
+                  </div>
+                </div>
+                <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                  <div className="rounded-xl bg-emerald-500/10 p-3">
+                    <p className="text-[10px] uppercase tracking-[0.2em] text-emerald-700">Ventas</p>
+                    <p className="mt-1 font-black text-emerald-700">{currencyFormatter.format(monthlySummary?.ventas ?? 0)}</p>
+                  </div>
+                  <div className="rounded-xl bg-primary/10 p-3">
+                    <p className="text-[10px] uppercase tracking-[0.2em] text-primary">Ganancia</p>
+                    <p className="mt-1 font-black text-primary">{currencyFormatter.format(monthlySummary?.ganancia ?? 0)}</p>
+                  </div>
+                </div>
+                <p className="mt-3 text-xs text-muted-foreground">
+                  {monthlySummary && monthlySummary.registros > 0
+                    ? `${monthlySummary.registros} ${monthlySummary.registros === 1 ? "gasto registrado" : "gastos registrados"}`
+                    : "Sin gastos cargados todavía"}
+                </p>
+              </div>
+              <Button variant="outline" className="w-full rounded-xl" onClick={() => navigate("/gastos")} type="button">Abrir gastos</Button>
+            </CardContent>
+          </Card>
+
           <Card className="rounded-2xl border-border/50 bg-card/40 backdrop-blur-sm">
             <CardHeader>
               <CardTitle className="text-base flex items-center gap-2">
@@ -164,7 +313,8 @@ export function Dashboard() {
                     </span>
                     <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                        <Button onClick={() => navigate(`/producto/${movimiento.inventarioId}`)} size="xs" variant="ghost">Ver</Button>
-                       <Button onClick={() => navigate(buildRepeatMovimientoRoute(movimiento))} size="xs" className="h-7 w-7 p-0 rounded-full" variant="secondary">↻</Button>
+                       <Button onClick={() => navigate(buildMovimientosRoute({ inventarioId: movimiento.inventarioId, presetTipoMovimiento: "SALIDA" }))} size="xs" variant="ghost">Nueva salida</Button>
+                       <Button aria-label="Repetir" onClick={() => navigate(buildRepeatMovimientoRoute(movimiento))} size="xs" className="h-7 w-7 p-0 rounded-full" variant="secondary">↻</Button>
                     </div>
                   </div>
                 </div>

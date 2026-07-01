@@ -9,6 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { deleteInventarioSeguro, getCatalogoFilterOptions, getCatalogoProductos } from "@/database/queries";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
+import { TIENDANUBE_SYNCED_EVENT } from "@/hooks/useTiendanubeSync";
 import type { CatalogoFilterOptions, CatalogoItem, EstadoInventario } from "@/types";
 
 type CatalogoFiltersState = {
@@ -17,6 +18,7 @@ type CatalogoFiltersState = {
   marca: string;
   estado: EstadoInventario | "TODOS";
   soloBajoStock: boolean;
+  soloConVariantes: boolean;
 };
 
 
@@ -25,6 +27,7 @@ export function Catalogo() {
   const [searchParams, setSearchParams] = useSearchParams();
   
   const [productos, setProductos] = useState<CatalogoItem[]>([]);
+  const [refreshKey, setRefreshKey] = useState(0);
   const [options, setOptions] = useState<CatalogoFilterOptions>({ categorias: [], marcas: [] });
   const [status, setStatus] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState<number | null>(null);
@@ -44,12 +47,13 @@ export function Catalogo() {
     marca: searchParams.get("marca") ?? "",
     estado: (searchParams.get("estado") as any) ?? "TODOS",
     soloBajoStock: searchParams.get("bajoStock") === "1",
+    soloConVariantes: searchParams.get("conVariantes") === "1",
   }), [searchParams]);
 
   const [searchInput, setSearchInput] = useState(filters.search);
   const debouncedSearch = useDebouncedValue(searchInput);
 
-  const hasActiveFilters = filters.search || filters.categoria || filters.marca || filters.estado !== "TODOS" || filters.soloBajoStock;
+  const hasActiveFilters = filters.search || filters.categoria || filters.marca || filters.estado !== "TODOS" || filters.soloBajoStock || filters.soloConVariantes;
 
   const currencyFormatter = new Intl.NumberFormat("es-AR", {
     style: "currency",
@@ -67,9 +71,10 @@ export function Catalogo() {
     if (filters.marca) params.set("marca", filters.marca);
     if (filters.estado !== "TODOS") params.set("estado", filters.estado);
     if (filters.soloBajoStock) params.set("bajoStock", "1");
+    if (filters.soloConVariantes) params.set("conVariantes", "1");
     
     setSearchParams(params, { replace: true });
-  }, [debouncedSearch, filters.categoria, filters.marca, filters.estado, filters.soloBajoStock, setSearchParams]);
+  }, [debouncedSearch, filters.categoria, filters.marca, filters.estado, filters.soloBajoStock, filters.soloConVariantes, setSearchParams]);
 
   useEffect(() => {
     async function load() {
@@ -79,11 +84,21 @@ export function Catalogo() {
         marca: filters.marca,
         estado: filters.estado === "TODOS" ? undefined : filters.estado,
         soloBajoStock: filters.soloBajoStock,
+        soloConVariantes: filters.soloConVariantes,
       });
       setProductos(rows);
     }
     void load();
-  }, [filters]);
+  }, [filters, refreshKey]);
+
+  useEffect(() => {
+    const onSynced = () => {
+      setRefreshKey((k) => k + 1);
+      void getCatalogoFilterOptions().then(setOptions);
+    };
+    window.addEventListener(TIENDANUBE_SYNCED_EVENT, onSynced);
+    return () => window.removeEventListener(TIENDANUBE_SYNCED_EVENT, onSynced);
+  }, []);
 
   const handleClearFilters = () => {
     setSearchInput("");
@@ -203,6 +218,18 @@ export function Catalogo() {
               >
                 {filters.soloBajoStock ? "Ver todo el stock" : "Ver solo bajo stock"}
               </Button>
+
+              <Button
+                variant={filters.soloConVariantes ? "default" : "outline"}
+                className="w-full rounded-xl text-xs"
+                onClick={() => {
+                  const p = new URLSearchParams(searchParams);
+                  if (!filters.soloConVariantes) p.set("conVariantes", "1"); else p.delete("conVariantes");
+                  setSearchParams(p);
+                }}
+              >
+                {filters.soloConVariantes ? "Ver todos" : "Ver solo con variantes"}
+              </Button>
             </CardContent>
           </Card>
         </aside>
@@ -249,18 +276,30 @@ export function Catalogo() {
             <div className="grid gap-6 sm:grid-cols-2 xl:grid-cols-3">
               {productos.map((producto) => (
                 <Card key={producto.inventarioId} className="group flex flex-col overflow-hidden rounded-3xl border-none bg-card/40 shadow-lg transition-all hover:shadow-2xl hover:shadow-primary/5 hover:-translate-y-1">
-                  <div className="relative aspect-[4/3] overflow-hidden bg-muted/30">
-                    {producto.imagenPathLocal ? (
-                      <img
-                        alt={producto.nombre}
-                        className="h-full w-full object-cover transition-transform duration-700 group-hover:scale-110"
-                        src={convertFileSrc(producto.imagenPathLocal)}
-                      />
-                    ) : (
-                      <div className="flex h-full items-center justify-center text-muted-foreground/10">
-                        <Boxes className="size-24" />
-                      </div>
-                    )}
+                  <div className="relative aspect-[3/3] overflow-hidden bg-muted/30">
+                    {(() => {
+                      const imgSrc = producto.imagenPathLocal
+                        ? convertFileSrc(producto.imagenPathLocal)
+                        : producto.imagenUrl;
+                      return imgSrc ? (
+                        <>
+                          <img
+                            aria-hidden
+                            src={imgSrc}
+                            className="absolute inset-0 h-full w-full scale-110 object-cover opacity-50 blur-2xl"
+                          />
+                          <img
+                            alt={producto.nombre}
+                            className="relative h-full w-full object-contain transition-transform duration-700 group-hover:scale-105"
+                            src={imgSrc}
+                          />
+                        </>
+                      ) : (
+                        <div className="flex h-full items-center justify-center text-muted-foreground/10">
+                          <Boxes className="size-24" />
+                        </div>
+                      );
+                    })()}
                     <div className="absolute top-3 right-3 flex flex-col gap-2">
                        <Badge variant={producto.estado === "ACTIVO" ? "default" : "secondary"} className="shadow-lg font-bold border-none px-3">
                         {producto.estado}
@@ -336,6 +375,12 @@ export function Catalogo() {
                         alt={producto.nombre}
                         className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-110"
                         src={convertFileSrc(producto.imagenPathLocal)}
+                      />
+                    ) : producto.imagenUrl ? (
+                      <img
+                        alt={producto.nombre}
+                        className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-110"
+                        src={producto.imagenUrl}
                       />
                     ) : (
                       <div className="flex h-full items-center justify-center text-muted-foreground/10">

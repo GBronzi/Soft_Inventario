@@ -30,4 +30,6 @@ sha2 = { version = "0.10.9", features = ["oid"] }
 tauri-plugin-log = "2.0.0-rc"
 tauri-plugin-http = "2"
 tauri-plugin-deep-link = "2"
+tauri-plugin-single-instance = { version = "2.4.2", features = ["deep-link"] }
+argon2 = "0.5.3"
 

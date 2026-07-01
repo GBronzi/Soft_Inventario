@@ -1,21 +1,27 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { convertFileSrc } from "@tauri-apps/api/core";
-import { 
-  ArrowLeft, 
-  Edit3, 
-  PlusCircle, 
-  MinusCircle, 
-  Zap, 
-  Activity, 
-  Package, 
-  Tag, 
-  Calendar, 
-  Hash, 
-  MapPin, 
+import {
+  ArrowLeft,
+  Edit3,
+  PlusCircle,
+  MinusCircle,
+  Zap,
+  Activity,
+  Package,
+  Tag,
+  Calendar,
+  Hash,
+  MapPin,
   FileText,
   Boxes,
-  RefreshCw
+  RefreshCw,
+  Barcode,
+  Layers,
+  Eye,
+  EyeOff,
+  Globe,
+  ShoppingBag
 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
@@ -29,9 +35,9 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { getMovimientosByInventarioId, getProductoByInventarioId } from "@/database/queries";
+import { getMovimientosByInventarioId, getProductoByInventarioId, getProductoCategorias } from "@/database/queries";
 import { buildMovimientosRoute, buildRepeatMovimientoRoute, buildVentaRapidaRoute } from "@/lib/movimientos";
-import type { MovimientoListado, ProductoDetalle as ProductoDetalleType } from "@/types";
+import type { CategoriaRef, MovimientoListado, ProductoDetalle as ProductoDetalleType } from "@/types";
 
 const KARDEX_PAGE_SIZE = 15;
 const KARDEX_QUERY_LIMIT = KARDEX_PAGE_SIZE + 1;
@@ -40,6 +46,7 @@ export function ProductoDetalle() {
   const navigate = useNavigate();
   const params = useParams();
   const [detalle, setDetalle] = useState<ProductoDetalleType | null>(null);
+  const [categorias, setCategorias] = useState<CategoriaRef[]>([]);
   const [movimientos, setMovimientos] = useState<MovimientoListado[]>([]);
   const [kardexHasMore, setKardexHasMore] = useState(false);
   const [kardexPage, setKardexPage] = useState(1);
@@ -66,6 +73,11 @@ export function ProductoDetalle() {
           setDetalle(prod);
           setKardexHasMore(movs.length > KARDEX_PAGE_SIZE);
           setMovimientos(movs.slice(0, KARDEX_PAGE_SIZE));
+          try {
+            setCategorias(await getProductoCategorias(prod.productoId));
+          } catch {
+            setCategorias([]);
+          }
         } else {
           setStatus("Variante no encontrada");
         }
@@ -127,6 +139,8 @@ export function ProductoDetalle() {
               <div className="aspect-square relative bg-muted/20">
                 {detalle.imagenPathLocal ? (
                   <img src={convertFileSrc(detalle.imagenPathLocal)} alt={detalle.nombre} className="h-full w-full object-cover" />
+                ) : detalle.imagenUrl ? (
+                  <img src={detalle.imagenUrl} alt={detalle.nombre} className="h-full w-full object-cover" />
                 ) : (
                   <div className="h-full w-full flex items-center justify-center opacity-10"><Boxes className="size-32" /></div>
                 )}
@@ -197,12 +211,28 @@ export function ProductoDetalle() {
                       <p className="font-bold text-sm">{detalle.sku || "N/A"}</p>
                   </div>
                   <div className="space-y-1">
+                      <p className="text-[10px] font-bold text-muted-foreground uppercase flex items-center gap-1"><Barcode className="size-3" /> Código de Barras</p>
+                      <p className="font-bold text-sm break-all">{detalle.codigoBarras || "N/A"}</p>
+                  </div>
+                  <div className="space-y-1">
                       <p className="text-[10px] font-bold text-muted-foreground uppercase flex items-center gap-1"><Package className="size-3" /> Capacidad</p>
                       <p className="font-bold text-sm">{detalle.capacidadMedida || "N/A"}</p>
                   </div>
                   <div className="space-y-1">
+                      <p className="text-[10px] font-bold text-muted-foreground uppercase flex items-center gap-1"><Tag className="size-3" /> Tipo / Variante</p>
+                      <p className="font-bold text-sm">{detalle.variante || "N/A"}</p>
+                  </div>
+                  <div className="space-y-1">
+                      <p className="text-[10px] font-bold text-muted-foreground uppercase flex items-center gap-1"><Layers className="size-3" /> Categoría</p>
+                      <p className="font-bold text-sm">{detalle.categoria || "N/A"}</p>
+                  </div>
+                  <div className="space-y-1">
                       <p className="text-[10px] font-bold text-muted-foreground uppercase flex items-center gap-1"><MapPin className="size-3" /> Ubicación</p>
                       <p className="font-bold text-sm">{detalle.ubicacion || "Sin ubicación"}</p>
+                  </div>
+                  <div className="space-y-1">
+                      <p className="text-[10px] font-bold text-muted-foreground uppercase flex items-center gap-1"><Package className="size-3" /> Lote</p>
+                      <p className="font-bold text-sm">{detalle.lote || "N/A"}</p>
                   </div>
                   <div className="space-y-1">
                       <p className="text-[10px] font-bold text-muted-foreground uppercase flex items-center gap-1"><Calendar className="size-3" /> Vencimiento</p>
@@ -221,6 +251,59 @@ export function ProductoDetalle() {
                         <p className="text-xs">{detalle.notas}</p>
                     </div>
                   )}
+               </div>
+            </CardContent>
+          </Card>
+
+          <Card className="border-none shadow-xl bg-card/40 backdrop-blur-md">
+            <CardHeader className="pb-2">
+               <CardTitle className="text-sm font-black uppercase tracking-widest opacity-40 flex items-center gap-2">
+                  <ShoppingBag className="size-4" /> E-commerce / Tiendanube
+               </CardTitle>
+            </CardHeader>
+            <CardContent className="p-6 space-y-6">
+               <div className="grid grid-cols-2 md:grid-cols-3 gap-6">
+                  <div className="space-y-1">
+                      <p className="text-[10px] font-bold text-muted-foreground uppercase flex items-center gap-1">
+                        {detalle.publicado ? <Eye className="size-3" /> : <EyeOff className="size-3" />} Visibilidad
+                      </p>
+                      <Badge variant={detalle.publicado ? "default" : "secondary"} className="border-none">
+                        {detalle.publicado ? "Visible (publicado)" : "Oculto"}
+                      </Badge>
+                  </div>
+                  <div className="space-y-1">
+                      <p className="text-[10px] font-bold text-muted-foreground uppercase flex items-center gap-1"><Hash className="size-3" /> Vínculo Tiendanube</p>
+                      <p className="font-bold text-sm">{detalle.tnProductId ? `Producto #${detalle.tnProductId}` : "No vinculado"}</p>
+                      {detalle.tnVariantId && <p className="text-[10px] text-muted-foreground">Variante #{detalle.tnVariantId}</p>}
+                  </div>
+                  <div className="space-y-1">
+                      <p className="text-[10px] font-bold text-muted-foreground uppercase flex items-center gap-1"><Tag className="size-3" /> Tags</p>
+                      <p className="font-bold text-sm">{detalle.tags || "Sin tags"}</p>
+                  </div>
+               </div>
+
+               <div className="space-y-2">
+                  <p className="text-[10px] font-bold text-muted-foreground uppercase flex items-center gap-1"><Layers className="size-3" /> Categorías de Tiendanube</p>
+                  {categorias.length > 0 ? (
+                    <div className="flex flex-wrap gap-1.5">
+                      {categorias.map((c) => (
+                        <span key={c.id} className="rounded-full bg-primary/10 text-primary text-[11px] font-bold px-3 py-1">{c.nombre}</span>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-muted-foreground italic">Sin categorías sincronizadas.</p>
+                  )}
+               </div>
+
+               <div className="grid gap-4 md:grid-cols-2">
+                  <div className="space-y-1">
+                     <p className="text-[10px] font-bold text-muted-foreground uppercase flex items-center gap-1"><Globe className="size-3" /> Título SEO</p>
+                     <p className="text-sm text-foreground/80">{detalle.seoTitulo || "No definido"}</p>
+                  </div>
+                  <div className="space-y-1">
+                     <p className="text-[10px] font-bold text-muted-foreground uppercase flex items-center gap-1"><FileText className="size-3" /> Descripción SEO</p>
+                     <p className="text-sm text-foreground/80">{detalle.seoDescripcion || "No definida"}</p>
+                  </div>
                </div>
             </CardContent>
           </Card>
@@ -271,8 +354,8 @@ export function ProductoDetalle() {
                               <p className="text-[9px] opacity-40">{new Date(m.fechaMovimiento).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
                            </TableCell>
                            <TableCell className="pr-4 text-right">
-                              <Button variant="ghost" size="icon" className="h-7 w-7 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => navigate(buildRepeatMovimientoRoute(m))}>
-                                <RefreshCw className="size-3" />
+                              <Button aria-label="Repetir" variant="ghost" size="icon" className="h-7 w-7 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => navigate(buildRepeatMovimientoRoute(m))}>
+                                 <RefreshCw className="size-3" />
                               </Button>
                            </TableCell>
                         </TableRow>

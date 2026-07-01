@@ -6,6 +6,12 @@ export interface LicenseStatus {
   message: string;
 }
 
+export interface AuthStatus {
+  configured: boolean;
+  username: string | null;
+  recoveryConfigured?: boolean;
+}
+
 export interface DashboardStats {
   totalProductos: number;
   totalVariantes: number;
@@ -13,6 +19,7 @@ export interface DashboardStats {
   variantesBajoStock: number;
   movimientosHoy: number;
   totalInvertido: number;
+  totalVentasSalidas: number;
 }
 
 export interface StockAlert {
@@ -34,6 +41,7 @@ export interface CatalogoFilters {
   marca?: string;
   estado?: string;
   soloBajoStock?: boolean;
+  soloConVariantes?: boolean;
 }
 
 export interface CatalogoFilterOptions {
@@ -52,6 +60,13 @@ export interface CatalogoItem {
   marca: string | null;
   notas: string | null;
   imagenPathLocal: string | null;
+  imagenUrl: string | null;
+  seoTitulo: string | null;
+  seoDescripcion: string | null;
+  tags: string | null;
+  publicado: number;
+  tnProductId: number | null;
+  tnVariantId: number | null;
   variante: string | null;
   capacidadMedida: string | null;
   sku: string | null;
@@ -64,9 +79,29 @@ export interface CatalogoItem {
   lote: string | null;
   vencimiento: string | null;
   estado: EstadoInventario;
+  tnCategoryIds: number[];
 }
 
-export interface ProductoDetalle extends CatalogoItem {}
+export interface ProductoDetalle extends CatalogoItem {
+  categorias?: CategoriaRef[];
+}
+
+export interface CategoriaRef {
+  id: number;
+  tnCategoryId: number | null;
+  nombre: string;
+}
+
+export interface Categoria {
+  id: number;
+  tnCategoryId: number | null;
+  nombre: string;
+  tnParentId: number | null;
+}
+
+export interface CategoriaTreeNode extends Categoria {
+  hijos: CategoriaTreeNode[];
+}
 
 export interface MovimientoListado {
   id: number;
@@ -132,6 +167,68 @@ export interface MovimientoTemplateDraft {
   referencia?: string;
 }
 
+export interface GastoDetalle {
+  id: string;
+  concepto: string;
+  valor: number;
+}
+
+export interface GastoRegistro {
+  id: string;
+  nombre: string;
+  fecha: string;
+  descripcion?: string;
+  items: GastoDetalle[];
+  total: number;
+  creadoEn: string;
+}
+
+export interface Contacto {
+  id: number;
+  nombre: string;
+  apellidos: string | null;
+  empresa: string | null;
+  cargo: string | null;
+  email: string | null;
+  emailAlternativo: string | null;
+  telefono: string | null;
+  telefonoAlternativo: string | null;
+  direccion: string | null;
+  ciudad: string | null;
+  provincia: string | null;
+  codigoPostal: string | null;
+  pais: string | null;
+  sitioWeb: string | null;
+  fechaNacimiento: string | null;
+  notas: string | null;
+  creadoEn: string;
+  actualizadoEn: string;
+}
+
+export interface ContactoDraft {
+  nombre: string;
+  apellidos?: string;
+  empresa?: string;
+  cargo?: string;
+  email?: string;
+  emailAlternativo?: string;
+  telefono?: string;
+  telefonoAlternativo?: string;
+  direccion?: string;
+  ciudad?: string;
+  provincia?: string;
+  codigoPostal?: string;
+  pais?: string;
+  sitioWeb?: string;
+  fechaNacimiento?: string;
+  notas?: string;
+}
+
+export interface ContactosPage {
+  items: Contacto[];
+  total: number;
+}
+
 export interface ProductoDraft {
   nombre: string;
   descripcion?: string;
@@ -139,6 +236,11 @@ export interface ProductoDraft {
   marca?: string;
   notas?: string;
   imagenPathLocal?: string;
+  imagenUrl?: string;
+  seoTitulo?: string;
+  seoDescripcion?: string;
+  tags?: string;
+  publicado?: boolean;
   variante?: string;
   capacidadMedida?: string;
   codigoBarras?: string;

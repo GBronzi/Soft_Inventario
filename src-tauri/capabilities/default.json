@@ -11,12 +11,12 @@
     "sql:default",
     "sql:allow-execute",
     "dialog:default",
-    "http:default",
     {
-      "identifier": "http:allow-fetch",
-      "scope": {
-        "allow": ["https://api.tiendanube.com/v1/**"]
-      }
+      "identifier": "http:default",
+      "allow": [
+        { "url": "https://api.tiendanube.com/v1/*" },
+        { "url": "https://api.tiendanube.com/v1/*?*" }
+      ]
     },
     "deep-link:default",
     "deep-link:allow-get-current"

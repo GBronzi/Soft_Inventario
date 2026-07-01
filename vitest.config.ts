@@ -10,5 +10,6 @@ export default defineConfig({
   test: {
     clearMocks: true,
     environment: "node",
+    exclude: ["**/node_modules/**", "**/dist/**", "**/.kilo/**"],
   },
 });

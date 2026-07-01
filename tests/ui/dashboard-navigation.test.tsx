@@ -15,6 +15,8 @@ vi.mock("@/database/queries", () => ({
   getDashboardOverview: mockGetDashboardOverview,
   getLowStockAlerts: mockGetLowStockAlerts,
   getRecentMovimientos: mockGetRecentMovimientos,
+  getProductoByCodigoBarras: vi.fn(),
+  MONTHLY_SALES_UPDATED_EVENT: "soft_inventario_ventas_actualizadas",
 }));
 
 vi.mock("@tauri-apps/api/core", () => ({
@@ -47,6 +49,7 @@ beforeEach(() => {
     variantesBajoStock: 3,
     movimientosHoy: 7,
     totalInvertido: 150000,
+    totalVentasSalidas: 50000,
   });
   mockGetLowStockAlerts.mockResolvedValue([
     {
@@ -105,7 +108,7 @@ describe("Dashboard UI", () => {
   it("navega desde la acción rápida al historial de salidas", async () => {
     const router = renderDashboard();
 
-    fireEvent.click(screen.getByRole("button", { name: "Historial de salidas" }));
+    fireEvent.click(screen.getByRole("button", { name: /Historial de salidas/ }));
 
     await waitFor(() => {
       expect(router.state.location.pathname).toBe("/movimientos");

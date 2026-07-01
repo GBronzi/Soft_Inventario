@@ -3,7 +3,7 @@ import Database from "@tauri-apps/plugin-sql";
 import schemaSql from "@/database/schema.sql?raw";
 
 const DATABASE_URL = "sqlite:inventario_v4.db";
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 4;
 
 let databasePromise: Promise<Database> | null = null;
 
@@ -45,6 +45,31 @@ async function getTableColumns(db: Database, tableName: string) {
 
   const rows = await db.select<TableInfoRow[]>(`PRAGMA table_info(${tableName})`);
   return rows.map((row) => row.name);
+}
+
+async function addMissingColumns(db: Database) {
+  const pending: Array<{ table: string; column: string; ddl: string }> = [
+    { table: "productos", column: "imagen_url", ddl: "ALTER TABLE productos ADD COLUMN imagen_url TEXT" },
+    { table: "productos", column: "seo_titulo", ddl: "ALTER TABLE productos ADD COLUMN seo_titulo TEXT" },
+    { table: "productos", column: "seo_descripcion", ddl: "ALTER TABLE productos ADD COLUMN seo_descripcion TEXT" },
+    { table: "productos", column: "tags", ddl: "ALTER TABLE productos ADD COLUMN tags TEXT" },
+    { table: "productos", column: "publicado", ddl: "ALTER TABLE productos ADD COLUMN publicado INTEGER NOT NULL DEFAULT 1" },
+    { table: "productos", column: "tn_product_id", ddl: "ALTER TABLE productos ADD COLUMN tn_product_id INTEGER" },
+    { table: "productos", column: "tn_updated_at", ddl: "ALTER TABLE productos ADD COLUMN tn_updated_at TEXT" },
+    { table: "inventario", column: "tn_variant_id", ddl: "ALTER TABLE inventario ADD COLUMN tn_variant_id INTEGER" },
+  ];
+
+  const columnCache = new Map<string, string[]>();
+  for (const item of pending) {
+    if (!columnCache.has(item.table)) {
+      columnCache.set(item.table, await getTableColumns(db, item.table));
+    }
+    const columns = columnCache.get(item.table)!;
+    if (columns.length > 0 && !columns.includes(item.column)) {
+      await db.execute(item.ddl);
+      columns.push(item.column);
+    }
+  }
 }
 
 async function ensureEmpresaConfigRow(db: Database) {
@@ -201,6 +226,7 @@ async function initializeSchema(db: Database) {
     await migrateLegacySchema(db);
   }
 
+  await addMissingColumns(db);
   await executeStatements(db, getSchemaStatements());
   await ensureEmpresaConfigRow(db);
   await db.execute(`PRAGMA user_version = ${SCHEMA_VERSION}`);

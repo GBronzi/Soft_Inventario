@@ -1,23 +1,29 @@
 import { useEffect, useState } from "react";
-import { 
-  ShoppingBag, 
-  CloudSync, 
-  Unlink, 
-  Terminal, 
-  CheckCircle2, 
+import {
+  ShoppingBag,
+  CloudSync,
+  Unlink,
+  Terminal,
+  CheckCircle2,
   XCircle,
   AlertCircle,
   Clock,
   Zap,
   ExternalLink,
-  Loader2
+  Loader2,
+  DownloadCloud,
+  RefreshCw
 } from "lucide-react";
-import { 
-  getTiendanubeSyncStatus, 
-  getTiendanubeCredentials, 
-  saveTiendanubeCredentials, 
-  clearTiendanubeCredentials, 
-  syncStockWithTiendanube 
+import {
+  getTiendanubeSyncStatus,
+  getTiendanubeCredentials,
+  saveTiendanubeCredentials,
+  clearTiendanubeCredentials,
+  syncStockWithTiendanube,
+  importarDesdeTiendanube,
+  getPollConfig,
+  setPollConfig,
+  type TiendanubePollConfig
 } from "@/api/tiendanube";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -34,8 +40,10 @@ const TIENDANUBE_AUTH_URL = "https://www.tiendanube.com/apps/28338/authorize?cli
 export function Tiendanube() {
   const [status, setStatus] = useState<TiendanubeSyncStatus | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
   const [isLinking, setIsLinking] = useState(false);
   const [syncLogs, setSyncLogs] = useState<string[]>([]);
+  const [pollConfig, setPollConfigState] = useState<TiendanubePollConfig>(() => getPollConfig());
 
   async function loadStatus() {
     const s = await getTiendanubeSyncStatus();
@@ -103,6 +111,31 @@ export function Tiendanube() {
     } finally {
       setIsSyncing(false);
     }
+  }
+
+  async function handleImport() {
+    setIsImporting(true);
+    setSyncLogs([`[${new Date().toLocaleTimeString()}] Importando desde Tiendanube (no se elimina nada de tu tienda)...`]);
+    try {
+      await importarDesdeTiendanube((msg) => {
+        setSyncLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ${msg}`]);
+      });
+      void loadStatus();
+    } catch (error) {
+      setSyncLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ERROR: ${error instanceof Error ? error.message : String(error)}`]);
+    } finally {
+      setIsImporting(false);
+    }
+  }
+
+  function handlePollToggle(enabled: boolean) {
+    setPollConfig({ enabled });
+    setPollConfigState(getPollConfig());
+  }
+
+  function handleIntervalChange(intervalSec: number) {
+    setPollConfig({ intervalSec });
+    setPollConfigState(getPollConfig());
   }
 
 const [creds, setCreds] = useState<any>(null);
@@ -192,7 +225,7 @@ const [creds, setCreds] = useState<any>(null);
 
           <Card className="border-none shadow-xl bg-card/40 backdrop-blur-sm">
             <CardContent className="p-6 text-[10px] text-muted-foreground space-y-2 leading-relaxed italic text-center">
-              El sistema sincroniza stock usando el <strong>SKU</strong>. Asegúrate de que los SKUs coincidan en ambas plataformas.
+              La sincronización cruza por el <strong>ID interno</strong> de cada producto/variante de Tiendanube, así funciona aunque el SKU esté vacío (se generan automáticamente al importar).
             </CardContent>
           </Card>
         </section>
@@ -226,14 +259,56 @@ const [creds, setCreds] = useState<any>(null);
                       <p className="text-[10px] font-black uppercase text-emerald-600/60 tracking-widest">Estado</p>
                       <p className="text-emerald-700 font-bold leading-tight">{status.message}</p>
                     </div>
-                    <Button
-                      onClick={handleSync}
-                      disabled={isSyncing}
-                      className="rounded-2xl h-14 px-8 bg-emerald-500 text-white font-black hover:bg-emerald-600 shadow-xl shadow-emerald-500/20 gap-3 border-none"
-                    >
-                      {isSyncing ? <CloudSync className="size-5 animate-spin" /> : <Zap className="size-5" />}
-                      {isSyncing ? "Sincronizando..." : "Sincronizar Stock"}
-                    </Button>
+                    <div className="flex flex-wrap gap-3">
+                      <Button
+                        onClick={handleImport}
+                        disabled={isImporting || isSyncing}
+                        className="rounded-2xl h-14 px-6 bg-[#002D45] text-white font-black hover:bg-[#002D45]/90 shadow-xl gap-3 border-none"
+                      >
+                        {isImporting ? <Loader2 className="size-5 animate-spin" /> : <DownloadCloud className="size-5" />}
+                        {isImporting ? "Importando..." : "Importar desde Tiendanube"}
+                      </Button>
+                      <Button
+                        onClick={handleSync}
+                        disabled={isSyncing || isImporting}
+                        className="rounded-2xl h-14 px-8 bg-emerald-500 text-white font-black hover:bg-emerald-600 shadow-xl shadow-emerald-500/20 gap-3 border-none"
+                      >
+                        {isSyncing ? <CloudSync className="size-5 animate-spin" /> : <Zap className="size-5" />}
+                        {isSyncing ? "Sincronizando..." : "Subir Stock"}
+                      </Button>
+                    </div>
+                  </div>
+
+                  <div className="p-6 rounded-[2rem] bg-card/40 border border-border/40 space-y-4">
+                    <div className="flex items-center gap-2 text-xs font-black uppercase tracking-widest opacity-50">
+                      <RefreshCw className="size-3" /> Sincronización automática (Tiendanube → Programa)
+                    </div>
+                    <div className="flex items-center justify-between flex-wrap gap-4">
+                      <label className="flex items-center gap-3 cursor-pointer select-none">
+                        <input
+                          type="checkbox"
+                          checked={pollConfig.enabled}
+                          onChange={(e) => handlePollToggle(e.target.checked)}
+                          className="size-5 accent-emerald-500"
+                        />
+                        <span className="text-sm font-bold">{pollConfig.enabled ? "Activada" : "Desactivada"}</span>
+                      </label>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-bold uppercase text-muted-foreground">Cada</span>
+                        <select
+                          value={pollConfig.intervalSec}
+                          onChange={(e) => handleIntervalChange(Number(e.target.value))}
+                          className="h-10 rounded-xl border border-border/50 bg-background/50 px-3 text-sm outline-none focus:ring-2 focus:ring-primary/20"
+                        >
+                          <option value={60}>60 segundos</option>
+                          <option value={120}>120 segundos</option>
+                          <option value={300}>5 minutos</option>
+                        </select>
+                      </div>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground leading-relaxed italic">
+                      Baja automáticamente los cambios hechos en Tiendanube (stock, precio, descripción, etc.) y los aplica en el programa. Nunca elimina productos.
+                    </p>
                   </div>
 
                   <div className="space-y-3">
@@ -253,7 +328,7 @@ const [creds, setCreds] = useState<any>(null);
                               </span>
                             </div>
                           ))}
-                          {isSyncing && <div className="animate-pulse text-emerald-500">&gt; Procesando...</div>}
+                          {(isSyncing || isImporting) && <div className="animate-pulse text-emerald-500">&gt; Procesando...</div>}
                         </div>
                       )}
                     </div>

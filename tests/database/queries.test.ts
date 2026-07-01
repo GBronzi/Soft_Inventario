@@ -1,17 +1,25 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { getDashboardOverview } from "@/database/queries";
+
 import { getDatabase } from "@/database/db";
 import {
   deleteMovimientoTemplate,
+  createContacto,
+  deleteContacto,
   deleteInventarioSeguro,
   getCatalogoProductos,
   getInventarioMovimientoOptions,
   getMovimientoTemplatesByInventarioId,
   getMovimientos,
   getMovimientosByInventarioId,
+  getProductoByCodigoBarras,
+  getContactos,
+  getContactosPage,
   registrarMovimientoStock,
   saveMovimientoTemplate,
   updateEstadoInventario,
+  updateContacto,
   updateProducto,
 } from "@/database/queries";
 
@@ -45,18 +53,61 @@ describe("queries de inventario", () => {
     });
 
     expect(result).toBe(3);
-    expect(mockDb.execute).toHaveBeenNthCalledWith(1, "BEGIN IMMEDIATE TRANSACTION");
     expect(mockDb.execute).toHaveBeenNthCalledWith(
-      2,
+      1,
       expect.stringContaining("UPDATE inventario"),
       [3, 7],
     );
     expect(mockDb.execute).toHaveBeenNthCalledWith(
-      3,
+      2,
       expect.stringContaining("INSERT INTO movimientos_stock"),
       [7, "SALIDA", 2, 3, "Venta mostrador", "VENTA-1"],
     );
-    expect(mockDb.execute).toHaveBeenNthCalledWith(4, "COMMIT");
+  });
+
+  it("cuenta como variantes solo los productos que realmente tienen variantes", async () => {
+    mockDb.select
+      .mockResolvedValueOnce([{ total: 8 }])
+      .mockResolvedValueOnce([{ total: 3 }])
+      .mockResolvedValueOnce([{ total: 24 }])
+      .mockResolvedValueOnce([{ total: 1 }])
+      .mockResolvedValueOnce([{ total: 2 }])
+      .mockResolvedValueOnce([{ total: 1250 }])
+      .mockResolvedValueOnce([{ total: 5000 }]);
+
+    const result = await getDashboardOverview();
+
+    expect(result.totalVariantes).toBe(3);
+    expect(result.totalVentasSalidas).toBe(5000);
+    expect(mockDb.select).toHaveBeenNthCalledWith(
+      2,
+      expect.stringContaining("productos_con_variantes"),
+    );
+    expect(mockDb.select).toHaveBeenNthCalledWith(
+      7,
+      expect.stringContaining("WHERE m.tipo_movimiento = 'SALIDA'"),
+    );
+  });
+
+  it("registra ventas del mes al hacer una salida", async () => {
+    const setItem = vi.fn();
+    vi.stubGlobal("localStorage", { getItem: vi.fn().mockReturnValue(null), setItem });
+
+    mockDb.select.mockResolvedValueOnce([{ inventarioId: 7, stockActual: 5, precioVenta: 100 }]);
+    mockDb.execute.mockResolvedValue(undefined);
+
+    await registrarMovimientoStock({
+      inventarioId: 7,
+      tipoMovimiento: "SALIDA",
+      cantidad: 2,
+      motivo: "Venta mostrador",
+      referencia: "VENTA-1",
+    });
+
+    expect(setItem).toHaveBeenCalledWith(
+      "soft_inventario_ventas_mensuales",
+      expect.stringContaining("\"2026-06\":200"),
+    );
   });
 
   it("impide movimientos que dejan stock negativo", async () => {
@@ -68,7 +119,7 @@ describe("queries de inventario", () => {
         tipoMovimiento: "SALIDA",
         cantidad: 2,
       }),
-    ).rejects.toThrow("La salida o ajuste dejaría el stock en negativo.");
+    ).rejects.toThrow("La salida o ajuste de 2 dejaría el stock en negativo");
 
     expect(mockDb.execute).not.toHaveBeenCalled();
   });
@@ -94,18 +145,16 @@ describe("queries de inventario", () => {
       estado: "ACTIVO",
     });
 
-    expect(mockDb.execute).toHaveBeenNthCalledWith(1, "BEGIN IMMEDIATE TRANSACTION");
     expect(mockDb.execute).toHaveBeenNthCalledWith(
-      2,
+      1,
       expect.stringContaining("UPDATE productos"),
       expect.arrayContaining(["Perfume Editado", 15]),
     );
     expect(mockDb.execute).toHaveBeenNthCalledWith(
-      3,
+      2,
       expect.stringContaining("UPDATE inventario"),
       expect.arrayContaining(["Tester", "100ml", 8]),
     );
-    expect(mockDb.execute).toHaveBeenNthCalledWith(4, "COMMIT");
   });
 
   it("actualiza estado de inventario", async () => {
@@ -156,6 +205,54 @@ describe("queries de inventario", () => {
     expect(mockDb.select).toHaveBeenCalledWith(
       expect.stringContaining("m.inventario_id AS inventarioId"),
       [4, 25],
+    );
+  });
+
+  it("busca un producto por código de barras exacto", async () => {
+    const producto = { inventarioId: 7, productoId: 2, nombre: "Perfume", codigoBarras: "7791234567890" };
+    mockDb.select.mockResolvedValueOnce([producto]);
+
+    const result = await getProductoByCodigoBarras(" 7791234567890 ");
+
+    expect(result).toEqual(producto);
+    expect(mockDb.select).toHaveBeenCalledWith(
+      expect.stringContaining("WHERE TRIM(i.codigo_barras) = $1"),
+      ["7791234567890"],
+    );
+  });
+
+  it("crea, lista, actualiza y elimina contactos locales", async () => {
+    mockDb.execute.mockResolvedValue({ lastInsertId: 12, rowsAffected: 1 });
+    mockDb.select.mockResolvedValueOnce([]);
+    const draft = { nombre: "Ana", apellidos: "Pérez", email: "ana@example.com", telefono: "+56912345678" };
+
+    expect(await createContacto(draft)).toBe(12);
+    await getContactos("Ana");
+    await updateContacto(12, { ...draft, empresa: "Perfumes Sur" });
+    await deleteContacto(12);
+
+    expect(mockDb.select).toHaveBeenCalledWith(expect.stringContaining("FROM contactos WHERE"), ["%Ana%"]);
+    expect(mockDb.execute).toHaveBeenCalledWith(expect.stringContaining("UPDATE contactos SET"), expect.arrayContaining(["Ana", 12]));
+    expect(mockDb.execute).toHaveBeenLastCalledWith("DELETE FROM contactos WHERE id = $1", [12]);
+  });
+
+  it("pagina contactos desde SQLite y devuelve el total", async () => {
+    mockDb.select
+      .mockResolvedValueOnce([{ id: 101, nombre: "Contacto 101" }])
+      .mockResolvedValueOnce([{ total: 60000 }]);
+
+    const result = await getContactosPage("Ana", 100, 200);
+
+    expect(result).toEqual({ items: [{ id: 101, nombre: "Contacto 101" }], total: 60000 });
+    expect(mockDb.select).toHaveBeenNthCalledWith(
+      1,
+      expect.stringContaining("LIMIT $2 OFFSET $3"),
+      ["%Ana%", 100, 200],
+    );
+    expect(mockDb.select).toHaveBeenNthCalledWith(
+      2,
+      expect.stringContaining("SELECT COUNT(*) AS total FROM contactos WHERE"),
+      ["%Ana%"],
     );
   });
 
@@ -290,17 +387,15 @@ describe("queries de inventario", () => {
     const result = await deleteInventarioSeguro(4);
 
     expect(result).toEqual({ inventarioEliminado: true, productoEliminado: true });
-    expect(mockDb.execute).toHaveBeenNthCalledWith(1, "BEGIN IMMEDIATE TRANSACTION");
     expect(mockDb.execute).toHaveBeenNthCalledWith(
-      2,
-      expect.stringContaining("DELETE FROM inventario"),
+      3,
+      "DELETE FROM inventario WHERE id = $1",
       [4],
     );
     expect(mockDb.execute).toHaveBeenNthCalledWith(
-      3,
+      4,
       expect.stringContaining("DELETE FROM productos"),
       [11],
     );
-    expect(mockDb.execute).toHaveBeenNthCalledWith(4, "COMMIT");
   });
 });

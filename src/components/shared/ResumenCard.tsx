@@ -9,9 +9,10 @@ interface ResumenCardProps {
   actionLabel?: string;
   onClick?: () => void;
   className?: string;
+  valueClassName?: string;
 }
 
-export function ResumenCard({ title, value, description, icon, actionLabel, onClick, className }: ResumenCardProps) {
+export function ResumenCard({ title, value, description, icon, actionLabel, onClick, className, valueClassName }: ResumenCardProps) {
   const isInteractive = Boolean(onClick);
 
   return (
@@ -37,9 +38,9 @@ export function ResumenCard({ title, value, description, icon, actionLabel, onCl
       tabIndex={isInteractive ? 0 : undefined}
     >
       <CardHeader className="flex flex-row items-center justify-between space-y-0">
-        <div>
+        <div className="min-w-0">
           <CardDescription>{title}</CardDescription>
-          <CardTitle className="mt-2 text-3xl font-semibold">{value}</CardTitle>
+          <CardTitle className={cn("mt-2 text-3xl font-semibold", valueClassName)}>{value}</CardTitle>
         </div>
         <div className="rounded-xl bg-muted p-2 text-muted-foreground">{icon}</div>
       </CardHeader>

@@ -2,8 +2,11 @@ import { Outlet } from "react-router-dom";
 
 import { AppSidebar } from "@/components/layout/AppSidebar";
 import { Topbar } from "@/components/layout/Topbar";
+import { useTiendanubeSync } from "@/hooks/useTiendanubeSync";
 
 export function AppLayout() {
+  useTiendanubeSync();
+
   return (
     <div className="min-h-screen bg-background text-foreground lg:flex">
       <AppSidebar />

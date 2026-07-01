@@ -1,10 +1,13 @@
 import { Link, useLocation } from "react-router-dom";
 import { getActiveNavigationItem } from "@/components/layout/navigation";
 import { ThemeToggle } from "@/components/shared/ThemeToggle";
+import { LogOut } from "lucide-react";
+import { useAuth } from "@/contexts/AuthContext";
 
 export function Topbar() {
   const location = useLocation();
   const activeItem = getActiveNavigationItem(location.pathname);
+  const { logout } = useAuth();
 
   return (
     <header className="border-b border-border bg-background/80 px-5 py-4 backdrop-blur-md sticky top-0 z-50">
@@ -20,6 +23,9 @@ export function Topbar() {
 
         <div className="flex items-center gap-3">
           <ThemeToggle />
+          <button type="button" onClick={logout} aria-label="Cerrar sesión" title="Cerrar sesión" className="inline-flex size-9 items-center justify-center rounded-lg border border-border text-muted-foreground transition-colors hover:bg-muted hover:text-foreground">
+            <LogOut className="size-4" />
+          </button>
           <div className="h-6 w-px bg-border mx-1" />
           <div className="flex gap-2">
             <Link

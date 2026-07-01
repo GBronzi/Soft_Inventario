@@ -10,7 +10,10 @@ import {
   RefreshCcw, 
   Globe, 
   Lock,
-  HardDrive
+  HardDrive,
+  KeyRound,
+  Copy,
+  UserRoundCog
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -19,7 +22,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { DATABASE_URL, pingDatabase } from "@/database/db";
 import { getConfiguracionEmpresa, saveConfiguracionEmpresa } from "@/database/queries";
-import type { ConfiguracionEmpresaDraft, LicenseStatus } from "@/types";
+import type { AuthStatus, ConfiguracionEmpresaDraft, LicenseStatus } from "@/types";
 
 const initialForm: ConfiguracionEmpresaDraft = {
   nombreEmpresa: "",
@@ -33,17 +36,29 @@ export function Configuracion() {
   const [form, setForm] = useState<ConfiguracionEmpresaDraft>(initialForm);
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
+  const [authStatus, setAuthStatus] = useState<AuthStatus | null>(null);
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newUsername, setNewUsername] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [securityStatus, setSecurityStatus] = useState<string | null>(null);
+  const [recoveryCode, setRecoveryCode] = useState<string | null>(null);
+  const [recoveryPassword, setRecoveryPassword] = useState("");
+  const [securitySaving, setSecuritySaving] = useState(false);
 
   const loadData = async () => {
     try {
-      const [databaseOk, licenseStatus, empresaConfig] = await Promise.all([
+      const [databaseOk, licenseStatus, empresaConfig, accessStatus] = await Promise.all([
         pingDatabase(),
         invoke<LicenseStatus>("get_license_status"),
         getConfiguracionEmpresa(),
+        invoke<AuthStatus>("get_auth_status"),
       ]);
 
       setDbReady(databaseOk);
       setLicense(licenseStatus);
+      setAuthStatus(accessStatus);
+      setNewUsername(accessStatus.username ?? "");
       setForm({
         nombreEmpresa: empresaConfig.nombreEmpresa ?? "",
         logoPathLocal: empresaConfig.logoPathLocal ?? "",
@@ -86,6 +101,45 @@ export function Configuracion() {
     }
   }
 
+  async function handleCredentialChange(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setSecurityStatus(null);
+    if (newPassword !== confirmPassword) {
+      setSecurityStatus("Error: las contraseñas nuevas no coinciden.");
+      return;
+    }
+    setSecuritySaving(true);
+    try {
+      const nextStatus = await invoke<AuthStatus>("change_credentials", { currentPassword, username: newUsername, password: newPassword });
+      setAuthStatus(nextStatus);
+      setCurrentPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
+      setSecurityStatus("Credenciales actualizadas correctamente.");
+    } catch (error) {
+      setSecurityStatus(`Error: ${String(error)}`);
+    } finally {
+      setSecuritySaving(false);
+    }
+  }
+
+  async function handleGenerateRecoveryCode() {
+    setSecurityStatus(null);
+    setRecoveryCode(null);
+    setSecuritySaving(true);
+    try {
+      const code = await invoke<string>("generate_recovery_code", { currentPassword: recoveryPassword });
+      setRecoveryCode(code);
+      setAuthStatus((value) => value ? { ...value, recoveryConfigured: true } : value);
+      setRecoveryPassword("");
+      setSecurityStatus("Código generado. Guárdalo ahora: sólo se mostrará esta vez.");
+    } catch (error) {
+      setSecurityStatus(`Error: ${String(error)}`);
+    } finally {
+      setSecuritySaving(false);
+    }
+  }
+
   return (
     <div className="space-y-6 animate-in fade-in duration-500 max-w-5xl mx-auto">
       <div className="flex items-center justify-between">
@@ -97,6 +151,65 @@ export function Configuracion() {
           <RefreshCcw className="size-4" /> Refrescar Estado
         </Button>
       </div>
+
+      <Card className="border-none bg-card/60 shadow-xl backdrop-blur-md">
+        <CardHeader>
+          <div className="flex items-center gap-3">
+            <div className="rounded-lg bg-primary/10 p-2 text-primary"><UserRoundCog className="size-5" /></div>
+            <div>
+              <CardTitle>Seguridad de acceso</CardTitle>
+              <CardDescription>Cambia las credenciales y prepara una recuperación segura para esta instalación.</CardDescription>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="grid gap-6 lg:grid-cols-2">
+          <form onSubmit={handleCredentialChange} className="space-y-4">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <label className="space-y-2 text-sm font-semibold">
+                <span>Usuario</span>
+                <Input value={newUsername} onChange={(event) => setNewUsername(event.target.value)} minLength={3} required />
+              </label>
+              <label className="space-y-2 text-sm font-semibold">
+                <span>Contraseña actual</span>
+                <Input type="password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} minLength={8} required />
+              </label>
+              <label className="space-y-2 text-sm font-semibold">
+                <span>Nueva contraseña</span>
+                <Input type="password" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} minLength={8} required />
+              </label>
+              <label className="space-y-2 text-sm font-semibold">
+                <span>Confirmar contraseña</span>
+                <Input type="password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} minLength={8} required />
+              </label>
+            </div>
+            <Button type="submit" disabled={securitySaving} className="gap-2"><KeyRound className="size-4" /> Actualizar credenciales</Button>
+          </form>
+
+          <div className="space-y-4 border-t border-border pt-5 lg:border-l lg:border-t-0 lg:pl-6 lg:pt-0">
+            <div>
+              <p className="font-semibold">Código de recuperación</p>
+              <p className="mt-1 text-sm text-muted-foreground">Es único para esta instalación y queda invalidado después de restablecer el acceso.</p>
+            </div>
+            <Badge variant="outline">{authStatus?.recoveryConfigured ? "Recuperación configurada" : "Pendiente de configurar"}</Badge>
+            <label className="block space-y-2 text-sm font-semibold">
+              <span>Contraseña actual</span>
+              <Input type="password" value={recoveryPassword} onChange={(event) => setRecoveryPassword(event.target.value)} minLength={8} placeholder="Confirma tu identidad" />
+            </label>
+            <Button type="button" variant="outline" disabled={securitySaving || recoveryPassword.length < 8} onClick={() => void handleGenerateRecoveryCode()} className="gap-2">
+              <KeyRound className="size-4" /> {authStatus?.recoveryConfigured ? "Generar un código nuevo" : "Generar código"}
+            </Button>
+            {recoveryCode && (
+              <div className="rounded-md border border-amber-500/30 bg-amber-500/10 p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <code className="break-all text-base font-bold tracking-wider">{recoveryCode}</code>
+                  <Button type="button" variant="ghost" size="icon" title="Copiar código" aria-label="Copiar código" onClick={() => void navigator.clipboard.writeText(recoveryCode)}><Copy className="size-4" /></Button>
+                </div>
+              </div>
+            )}
+          </div>
+          {securityStatus && <p role="status" className={`text-sm font-semibold lg:col-span-2 ${securityStatus.startsWith("Error") ? "text-rose-500" : "text-emerald-600"}`}>{securityStatus}</p>}
+        </CardContent>
+      </Card>
 
       <div className="grid gap-6 lg:grid-cols-12">
         {/* Identidad de la Empresa */}

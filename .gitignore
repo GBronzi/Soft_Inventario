@@ -11,6 +11,9 @@ node_modules
 dist
 dist-ssr
 *.local
+keys/private.pem
+.kilo/
+Conversacion_IA_Backups.json
 
 # Editor directories and files
 .vscode/*
