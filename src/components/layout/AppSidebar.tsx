@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { getVersion } from "@tauri-apps/api/app";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { NavLink } from "react-router-dom";
 import { Info, Instagram, Mail, User } from "lucide-react";
@@ -9,9 +10,11 @@ import type { ConfiguracionEmpresa } from "@/types";
 
 export function AppSidebar() {
   const [config, setConfig] = useState<ConfiguracionEmpresa | null>(null);
+  const [appVersion, setAppVersion] = useState("1.0.5");
 
   useEffect(() => {
     void getConfiguracionEmpresa().then(setConfig);
+    void getVersion().then(setAppVersion).catch(() => undefined);
   }, []);
 
   return (
@@ -130,7 +133,7 @@ export function AppSidebar() {
       {/* Footer Info */}
       <div className="p-6 border-t border-border/30">
          <div className="p-4 rounded-2xl bg-muted/20 border border-border/50 text-center">
-            <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Versión 1.0.4 - Premium</p>
+            <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Versión {appVersion} - Premium</p>
             <p className="text-[8px] text-muted-foreground mt-1 opacity-50">Base Offline-First | RSA SECURE</p>
          </div>
       </div>
