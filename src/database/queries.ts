@@ -16,12 +16,14 @@ import type {
   InventarioMovimientoOption,
   MovimientosFilters,
   MovimientoListado,
+  MovimientoConcepto,
   MovimientoStockDraft,
   MovimientoTemplate,
   MovimientoTemplateDraft,
   ProductoDetalle,
   ProductoDraft,
   StockAlert,
+  ResumenMensualMovimientos,
 } from "@/types";
 
 async function getCount(query: string) {
@@ -39,49 +41,16 @@ interface InventarioStockRow {
   inventarioId: number;
   stockActual: number;
   precioVenta: number | null;
+  precioCompra: number | null;
 }
 
-const MONTHLY_SALES_STORAGE_KEY = "soft_inventario_ventas_mensuales";
+const CONCEPTOS_VALIDOS: Record<string, MovimientoConcepto[]> = {
+  ENTRADA: ["COMPRA_REPOSICION", "DEVOLUCION_CLIENTE", "CAMBIO_ENTRADA", "ENTRADA_OTRA"],
+  SALIDA: ["VENTA", "ROTURA", "FALLA", "VENCIMIENTO", "REGALO_SORTEO", "CAMBIO_SALIDA", "CAMBIO_GARANTIA", "DEVOLUCION_PROVEEDOR", "PERDIDA_FALTANTE", "SALIDA_OTRA"],
+  AJUSTE: ["CORRECCION_STOCK"],
+};
+
 const MONTHLY_SALES_UPDATED_EVENT = "soft_inventario_ventas_actualizadas";
-
-function getStorage() {
-  if (typeof window !== "undefined" && window.localStorage) {
-    return window.localStorage;
-  }
-
-  if (typeof globalThis !== "undefined" && "localStorage" in globalThis) {
-    return globalThis.localStorage as Storage | undefined;
-  }
-
-  return undefined;
-}
-
-function getMonthKey(date: Date = new Date()) {
-  const localTime = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
-  return localTime.toISOString().slice(0, 7);
-}
-
-function readStoredMonthlySales(): Record<string, number> {
-  const storage = getStorage();
-  if (!storage) return {};
-  try {
-    const raw = storage.getItem(MONTHLY_SALES_STORAGE_KEY);
-    if (!raw) return {};
-    const parsed = JSON.parse(raw);
-    return parsed && typeof parsed === "object" ? parsed : {};
-  } catch {
-    return {};
-  }
-}
-
-function persistMonthlySales(amount: number, date: Date = new Date()) {
-  const storage = getStorage();
-  if (!storage) return;
-  const monthKey = getMonthKey(date);
-  const current = readStoredMonthlySales();
-  const nextValue = { ...current, [monthKey]: (Number(current[monthKey]) || 0) + amount };
-  storage.setItem(MONTHLY_SALES_STORAGE_KEY, JSON.stringify(nextValue));
-}
 
 export { MONTHLY_SALES_UPDATED_EVENT };
 
@@ -130,7 +99,7 @@ export async function getDashboardOverview(): Promise<DashboardStats> {
         `SELECT COALESCE(SUM(ABS(m.cantidad) * COALESCE(i.precio_venta, 0)), 0) AS total
          FROM movimientos_stock m
          INNER JOIN inventario i ON i.id = m.inventario_id
-         WHERE m.tipo_movimiento = 'SALIDA'`,
+         WHERE m.concepto = 'VENTA'`,
       ),
     ]);
 
@@ -419,10 +388,15 @@ export async function getMovimientos(filters: MovimientosFilters = {}): Promise<
         p.nombre AS producto,
         i.variante AS variante,
         m.tipo_movimiento AS tipoMovimiento,
+        m.concepto AS concepto,
         m.cantidad AS cantidad,
         m.stock_resultante AS stockResultante,
         m.motivo AS motivo,
         m.referencia AS referencia,
+        m.precio_unitario AS precioUnitario,
+        m.costo_unitario AS costoUnitario,
+        m.importe_total AS importeTotal,
+        m.operacion_id AS operacionId,
         m.fecha_movimiento AS fechaMovimiento
       FROM movimientos_stock m
       INNER JOIN inventario i ON i.id = m.inventario_id
@@ -476,6 +450,8 @@ export async function getInventarioMovimientoOptions(): Promise<InventarioMovimi
         i.sku AS sku,
         i.stock_actual AS stockActual,
         i.stock_minimo AS stockMinimo,
+        i.precio_compra AS precioCompra,
+        i.precio_venta AS precioVenta,
         i.estado AS estado
       FROM inventario i
       INNER JOIN productos p ON p.id = i.producto_id
@@ -486,6 +462,13 @@ export async function getInventarioMovimientoOptions(): Promise<InventarioMovimi
 export async function registrarMovimientoStock(payload: MovimientoStockDraft) {
   const db = await getDatabase();
   const cantidad = Number(payload.cantidad);
+  const concepto: MovimientoConcepto = payload.concepto ?? (
+    payload.tipoMovimiento === "ENTRADA"
+      ? "ENTRADA_OTRA"
+      : payload.tipoMovimiento === "SALIDA"
+        ? (payload.motivo?.toLowerCase().includes("venta") ? "VENTA" : "SALIDA_OTRA")
+        : "CORRECCION_STOCK"
+  );
 
   if (!Number.isInteger(cantidad)) {
     throw new Error("La cantidad debe ser un número entero.");
@@ -497,6 +480,16 @@ export async function registrarMovimientoStock(payload: MovimientoStockDraft) {
 
   if (payload.tipoMovimiento === "AJUSTE" && cantidad === 0) {
     throw new Error("El ajuste no puede ser cero.");
+  }
+
+  if (!CONCEPTOS_VALIDOS[payload.tipoMovimiento]?.includes(concepto)) {
+    throw new Error("El concepto seleccionado no corresponde al tipo de movimiento.");
+  }
+
+  const referencia = payload.referencia?.trim() || null;
+  const esCambio = concepto === "CAMBIO_ENTRADA" || concepto === "CAMBIO_SALIDA";
+  if (esCambio && !referencia) {
+    throw new Error("Los cambios requieren una referencia compartida para vincular la entrada y la salida.");
   }
 
   if (isNaN(cantidad)) {
@@ -512,7 +505,8 @@ export async function registrarMovimientoStock(payload: MovimientoStockDraft) {
       `SELECT
           id AS inventarioId,
           stock_actual AS stockActual,
-          precio_venta AS precioVenta
+          precio_venta AS precioVenta,
+          precio_compra AS precioCompra
         FROM inventario
         WHERE id = $1`,
       [payload.inventarioId],
@@ -532,9 +526,13 @@ export async function registrarMovimientoStock(payload: MovimientoStockDraft) {
           : cantidad;
 
     const stockResultante = Number(inventario.stockActual ?? 0) + delta;
-    const saleAmount = payload.tipoMovimiento === "SALIDA"
-      ? Number(inventario.precioVenta ?? 0) * cantidad
+    const precioUnitario = Number(inventario.precioVenta ?? 0);
+    const costoUnitario = Number(inventario.precioCompra ?? 0);
+    const importeSugerido = precioUnitario * Math.abs(cantidad);
+    const importeTotal = concepto === "VENTA" || concepto === "DEVOLUCION_CLIENTE"
+      ? Math.max(0, Number(payload.importeTotal ?? importeSugerido))
       : 0;
+    const operacionId = esCambio ? referencia?.toUpperCase() ?? null : null;
 
     if (stockResultante < 0) {
       throw new Error(`La salida o ajuste de ${cantidad} dejaría el stock en negativo (Actual: ${inventario.stockActual}).`);
@@ -556,23 +554,32 @@ export async function registrarMovimientoStock(payload: MovimientoStockDraft) {
       `INSERT INTO movimientos_stock (
           inventario_id,
           tipo_movimiento,
+          concepto,
           cantidad,
           stock_resultante,
           motivo,
-          referencia
-        ) VALUES ($1, $2, $3, $4, $5, $6)`,
+          referencia,
+          precio_unitario,
+          costo_unitario,
+          importe_total,
+          operacion_id
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
       [
         payload.inventarioId,
         payload.tipoMovimiento,
+        concepto,
         cantidad,
         stockResultante,
         payload.motivo?.trim() || null,
-        payload.referencia?.trim() || null,
+        referencia,
+        precioUnitario,
+        costoUnitario,
+        importeTotal,
+        operacionId,
       ],
     );
 
-    if (payload.tipoMovimiento === "SALIDA" && saleAmount > 0) {
-      persistMonthlySales(saleAmount);
+    if (concepto === "VENTA" || concepto === "DEVOLUCION_CLIENTE") {
       notifyMonthlySalesUpdate();
     }
 
@@ -584,6 +591,48 @@ export async function registrarMovimientoStock(payload: MovimientoStockDraft) {
     console.error("Error en registrarMovimientoStock:", error);
     throw new Error(msg);
   }
+}
+
+export async function getResumenMensualMovimientos(mes: string): Promise<ResumenMensualMovimientos> {
+  const db = await getDatabase();
+  const rows = await db.select<Array<Omit<ResumenMensualMovimientos, "mes">>>(
+    `SELECT
+      COALESCE(SUM(CASE WHEN concepto = 'VENTA' THEN importe_total ELSE 0 END), 0) AS ventasBrutas,
+      COALESCE(SUM(CASE WHEN concepto = 'DEVOLUCION_CLIENTE' THEN importe_total ELSE 0 END), 0) AS devoluciones,
+      COALESCE(SUM(CASE WHEN concepto = 'VENTA' THEN importe_total WHEN concepto = 'DEVOLUCION_CLIENTE' THEN -importe_total ELSE 0 END), 0) AS ventasNetas,
+      COALESCE(SUM(CASE WHEN concepto = 'VENTA' THEN ABS(cantidad) ELSE 0 END), 0) AS unidadesVendidas,
+      COALESCE(SUM(CASE WHEN concepto = 'COMPRA_REPOSICION' THEN ABS(cantidad) ELSE 0 END), 0) AS comprasUnidades,
+      COALESCE(SUM(CASE WHEN concepto = 'CAMBIO_ENTRADA' THEN ABS(cantidad) ELSE 0 END), 0) AS cambiosEntradas,
+      COALESCE(SUM(CASE WHEN concepto = 'CAMBIO_SALIDA' THEN ABS(cantidad) ELSE 0 END), 0) AS cambiosSalidas,
+      COALESCE(SUM(CASE WHEN concepto = 'CAMBIO_GARANTIA' THEN ABS(cantidad) * costo_unitario ELSE 0 END), 0) AS cambiosGarantiaCosto,
+      COALESCE(SUM(CASE WHEN concepto IN ('ROTURA', 'FALLA') THEN ABS(cantidad) * costo_unitario ELSE 0 END), 0) AS roturasFallasCosto,
+      COALESCE(SUM(CASE WHEN concepto = 'VENCIMIENTO' THEN ABS(cantidad) * costo_unitario ELSE 0 END), 0) AS vencimientosCosto,
+      COALESCE(SUM(CASE WHEN concepto = 'REGALO_SORTEO' THEN ABS(cantidad) * costo_unitario ELSE 0 END), 0) AS regalosCosto,
+      COALESCE(SUM(CASE WHEN concepto = 'PERDIDA_FALTANTE' THEN ABS(cantidad) * costo_unitario ELSE 0 END), 0) AS perdidasCosto,
+      COALESCE(SUM(CASE WHEN concepto = 'CORRECCION_STOCK' AND cantidad > 0 THEN cantidad ELSE 0 END), 0) AS ajustesPositivos,
+      COALESCE(SUM(CASE WHEN concepto = 'CORRECCION_STOCK' AND cantidad < 0 THEN ABS(cantidad) ELSE 0 END), 0) AS ajustesNegativos
+     FROM movimientos_stock
+     WHERE strftime('%Y-%m', fecha_movimiento, 'localtime') = $1`,
+    [mes],
+  );
+  const row = rows[0];
+  return {
+    mes,
+    ventasBrutas: Number(row?.ventasBrutas ?? 0),
+    devoluciones: Number(row?.devoluciones ?? 0),
+    ventasNetas: Number(row?.ventasNetas ?? 0),
+    unidadesVendidas: Number(row?.unidadesVendidas ?? 0),
+    comprasUnidades: Number(row?.comprasUnidades ?? 0),
+    cambiosEntradas: Number(row?.cambiosEntradas ?? 0),
+    cambiosSalidas: Number(row?.cambiosSalidas ?? 0),
+    cambiosGarantiaCosto: Number(row?.cambiosGarantiaCosto ?? 0),
+    roturasFallasCosto: Number(row?.roturasFallasCosto ?? 0),
+    vencimientosCosto: Number(row?.vencimientosCosto ?? 0),
+    regalosCosto: Number(row?.regalosCosto ?? 0),
+    perdidasCosto: Number(row?.perdidasCosto ?? 0),
+    ajustesPositivos: Number(row?.ajustesPositivos ?? 0),
+    ajustesNegativos: Number(row?.ajustesNegativos ?? 0),
+  };
 }
 
 export async function saveMovimientoTemplate(payload: MovimientoTemplateDraft) {

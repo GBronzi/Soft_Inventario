@@ -8,19 +8,16 @@ import { EscanerBluetoothPanel } from "@/components/shared/EscanerBluetoothPanel
 import { ResumenCard } from "@/components/shared/ResumenCard";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { getDashboardOverview, getLowStockAlerts, getRecentMovimientos, MONTHLY_SALES_UPDATED_EVENT } from "@/database/queries";
+import { getDashboardOverview, getLowStockAlerts, getRecentMovimientos, getResumenMensualMovimientos, MONTHLY_SALES_UPDATED_EVENT } from "@/database/queries";
 import { TIENDANUBE_SYNCED_EVENT } from "@/hooks/useTiendanubeSync";
 import { buildMovimientosRoute, buildRepeatMovimientoRoute, buildVentaRapidaRoute } from "@/lib/movimientos";
-import type { DashboardStats, GastoRegistro, LicenseStatus, MovimientoListado, StockAlert } from "@/types";
+import type { DashboardStats, GastoRegistro, LicenseStatus, MovimientoListado, ResumenMensualMovimientos, StockAlert } from "@/types";
 
 const GASTOS_STORAGE_KEY = "soft_inventario_gastos";
-const VENTAS_STORAGE_KEY = "soft_inventario_ventas_mensuales";
 
-type MonthlyDashboardSummary = {
-  mes: string;
+type MonthlyDashboardSummary = ResumenMensualMovimientos & {
   gastos: number;
-  ventas: number;
-  ganancia: number;
+  resultado: number;
   registros: number;
 };
 
@@ -66,32 +63,6 @@ function readStoredGastos(): GastoRegistro[] {
   return [];
 }
 
-function readStoredVentas(): Record<string, number> {
-  if (typeof window !== "undefined" && window.localStorage) {
-    try {
-      const raw = window.localStorage.getItem(VENTAS_STORAGE_KEY);
-      if (!raw) return {};
-      const parsed = JSON.parse(raw);
-      return parsed && typeof parsed === "object" ? parsed : {};
-    } catch {
-      return {};
-    }
-  }
-
-  if (typeof globalThis !== "undefined" && "localStorage" in globalThis) {
-    try {
-      const raw = globalThis.localStorage.getItem(VENTAS_STORAGE_KEY);
-      if (!raw) return {};
-      const parsed = JSON.parse(raw);
-      return parsed && typeof parsed === "object" ? parsed : {};
-    } catch {
-      return {};
-    }
-  }
-
-  return {};
-}
-
 export function Dashboard() {
   const navigate = useNavigate();
   const [stats, setStats] = useState(initialStats);
@@ -110,15 +81,16 @@ export function Dashboard() {
 
   useEffect(() => {
     async function load() {
-      const [dashboard, lowStock, recentMovements, licenseStatus] = await Promise.all([
+      const currentMonth = new Date().toISOString().slice(0, 7);
+      const [dashboard, lowStock, recentMovements, licenseStatus, movementSummary] = await Promise.all([
         getDashboardOverview(),
         getLowStockAlerts(),
         getRecentMovimientos(5),
         invoke<LicenseStatus>("get_license_status"),
+        getResumenMensualMovimientos(currentMonth),
       ]);
 
       const gastos = readStoredGastos();
-      const ventasMensuales = readStoredVentas();
       const monthMap = new Map<string, { mes: string; gastos: number; registros: number }>();
 
       gastos.forEach((gasto) => {
@@ -129,20 +101,14 @@ export function Dashboard() {
         monthMap.set(mes, entry);
       });
 
-      const currentMonth = new Date().toISOString().slice(0, 7);
       const currentEntry = monthMap.get(currentMonth);
-      const currentSummary = currentEntry ? {
-        mes: currentMonth,
-        gastos: currentEntry.gastos,
-        ventas: ventasMensuales[currentMonth] ?? 0,
-        ganancia: (ventasMensuales[currentMonth] ?? 0) - currentEntry.gastos,
-        registros: currentEntry.registros,
-      } : {
-        mes: currentMonth,
-        gastos: 0,
-        ventas: ventasMensuales[currentMonth] ?? 0,
-        ganancia: (ventasMensuales[currentMonth] ?? 0),
-        registros: 0,
+      const gastosMes = currentEntry?.gastos ?? 0;
+      const costosNoComerciales = movementSummary.roturasFallasCosto + movementSummary.vencimientosCosto + movementSummary.regalosCosto + movementSummary.perdidasCosto + movementSummary.cambiosGarantiaCosto;
+      const currentSummary = {
+        ...movementSummary,
+        gastos: gastosMes,
+        resultado: movementSummary.ventasNetas - gastosMes - costosNoComerciales,
+        registros: currentEntry?.registros ?? 0,
       };
 
       setStats(dashboard);
@@ -177,7 +143,7 @@ export function Dashboard() {
           <ResumenCard className="border-l-4 border-l-emerald-500 shadow-sm hover:shadow-md transition-shadow" actionLabel="Revisar stock" description="Unidades totales" icon={<PackageSearch className="size-5 text-emerald-500" />} onClick={() => navigate("/catalogo?estado=ACTIVO")} title="Stock total" value={stats.stockTotal} />
           <ResumenCard className="border-l-4 border-l-rose-500 shadow-sm hover:shadow-md transition-shadow" actionLabel="Ver bajo stock" description="Reponer urgente" icon={<TriangleAlert className="size-5 text-rose-500" />} onClick={() => navigate("/catalogo?bajoStock=1")} title="Bajo stock" value={stats.variantesBajoStock} />
           <ResumenCard className="border-l-4 border-l-amber-500 shadow-sm hover:shadow-md transition-shadow" actionLabel="Ver hoy" description="Movimientos" icon={<ClipboardList className="size-5 text-amber-500" />} onClick={() => navigate(`/movimientos?fechaDesde=${todayDateParam}&fechaHasta=${todayDateParam}`)} title="Hoy" value={stats.movimientosHoy} />
-          <ResumenCard className="border-l-4 border-l-indigo-500 shadow-sm hover:shadow-md transition-shadow" valueClassName="break-words text-2xl leading-tight tabular-nums" actionLabel="Historial de salidas" description="Ventas por movimientos de salida" icon={<ShoppingCart className="size-5 text-indigo-500" />} onClick={() => navigate("/movimientos?tipoMovimiento=SALIDA")} title="Ventas" value={currencyFormatter.format(stats.totalVentasSalidas).replace("ARS", "$")} />
+          <ResumenCard className="border-l-4 border-l-indigo-500 shadow-sm hover:shadow-md transition-shadow" valueClassName="break-words text-2xl leading-tight tabular-nums" actionLabel="Historial de ventas" description="Sólo salidas clasificadas como venta" icon={<ShoppingCart className="size-5 text-indigo-500" />} onClick={() => navigate("/movimientos?tipoMovimiento=SALIDA")} title="Ventas" value={currencyFormatter.format(stats.totalVentasSalidas).replace("ARS", "$")} />
         </div>
       </section>
 
@@ -214,14 +180,14 @@ export function Dashboard() {
                 <History className="size-4 text-primary" />
                 Historial por mes
               </CardTitle>
-              <CardDescription>Resumen rápido de gastos, ventas y ganancia del mes actual.</CardDescription>
+              <CardDescription>Ventas reales, bajas, cambios y correcciones del mes actual.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="rounded-2xl border border-border/50 bg-background/70 p-4">
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">{monthlySummary?.mes ?? "—"}</p>
-                    <p className="text-lg font-black">{currencyFormatter.format(monthlySummary?.gastos ?? 0)}</p>
+                    <p className="text-lg font-black">{currencyFormatter.format(monthlySummary?.ventasNetas ?? 0)}</p>
                   </div>
                   <div className="rounded-full bg-amber-500/10 p-2 text-amber-600">
                     <Wallet className="size-4" />
@@ -229,14 +195,23 @@ export function Dashboard() {
                 </div>
                 <div className="mt-4 grid gap-3 sm:grid-cols-2">
                   <div className="rounded-xl bg-emerald-500/10 p-3">
-                    <p className="text-[10px] uppercase tracking-[0.2em] text-emerald-700">Ventas</p>
-                    <p className="mt-1 font-black text-emerald-700">{currencyFormatter.format(monthlySummary?.ventas ?? 0)}</p>
+                    <p className="text-[10px] uppercase tracking-[0.2em] text-emerald-700">Ventas / unidades</p>
+                    <p className="mt-1 font-black text-emerald-700">{currencyFormatter.format(monthlySummary?.ventasBrutas ?? 0)} · {monthlySummary?.unidadesVendidas ?? 0} u.</p>
                   </div>
                   <div className="rounded-xl bg-primary/10 p-3">
-                    <p className="text-[10px] uppercase tracking-[0.2em] text-primary">Ganancia</p>
-                    <p className="mt-1 font-black text-primary">{currencyFormatter.format(monthlySummary?.ganancia ?? 0)}</p>
+                    <p className="text-[10px] uppercase tracking-[0.2em] text-primary">Resultado operativo</p>
+                    <p className="mt-1 font-black text-primary">{currencyFormatter.format(monthlySummary?.resultado ?? 0)}</p>
+                  </div>
+                  <div className="rounded-xl bg-rose-500/10 p-3 text-xs">
+                    <p className="font-bold text-rose-700">Devoluciones: {currencyFormatter.format(monthlySummary?.devoluciones ?? 0)}</p>
+                    <p className="mt-1 text-muted-foreground">Roturas/fallas: {currencyFormatter.format(monthlySummary?.roturasFallasCosto ?? 0)} · Vencidos: {currencyFormatter.format(monthlySummary?.vencimientosCosto ?? 0)}</p>
+                  </div>
+                  <div className="rounded-xl bg-amber-500/10 p-3 text-xs">
+                    <p className="font-bold text-amber-700">Cambios: +{monthlySummary?.cambiosEntradas ?? 0} / -{monthlySummary?.cambiosSalidas ?? 0} u.</p>
+                    <p className="mt-1 text-muted-foreground">Garantías: {currencyFormatter.format(monthlySummary?.cambiosGarantiaCosto ?? 0)} · Regalos: {currencyFormatter.format(monthlySummary?.regalosCosto ?? 0)} · Faltantes: {currencyFormatter.format(monthlySummary?.perdidasCosto ?? 0)}</p>
                   </div>
                 </div>
+                <p className="mt-3 text-xs text-muted-foreground">Ajustes de stock: +{monthlySummary?.ajustesPositivos ?? 0} / -{monthlySummary?.ajustesNegativos ?? 0} u. · Compras: {monthlySummary?.comprasUnidades ?? 0} u. · Gastos: {currencyFormatter.format(monthlySummary?.gastos ?? 0)}</p>
                 <p className="mt-3 text-xs text-muted-foreground">
                   {monthlySummary && monthlySummary.registros > 0
                     ? `${monthlySummary.registros} ${monthlySummary.registros === 1 ? "gasto registrado" : "gastos registrados"}`
@@ -308,8 +283,8 @@ export function Dashboard() {
                   </div>
                   
                   <div className="flex flex-col items-end gap-2">
-                    <span className={`text-lg font-black ${movimiento.tipoMovimiento === "ENTRADA" ? "text-emerald-500" : "text-rose-500"}`}>
-                      {movimiento.tipoMovimiento === "ENTRADA" ? "+" : "-"}{movimiento.cantidad}
+                    <span className={`text-lg font-black ${movimiento.tipoMovimiento === "ENTRADA" || (movimiento.tipoMovimiento === "AJUSTE" && movimiento.cantidad > 0) ? "text-emerald-500" : "text-rose-500"}`}>
+                      {movimiento.tipoMovimiento === "ENTRADA" || (movimiento.tipoMovimiento === "AJUSTE" && movimiento.cantidad > 0) ? "+" : "-"}{Math.abs(movimiento.cantidad)}
                     </span>
                     <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                        <Button onClick={() => navigate(`/producto/${movimiento.inventarioId}`)} size="xs" variant="ghost">Ver</Button>

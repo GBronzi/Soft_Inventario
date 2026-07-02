@@ -3,7 +3,7 @@ import Database from "@tauri-apps/plugin-sql";
 import schemaSql from "@/database/schema.sql?raw";
 
 const DATABASE_URL = "sqlite:inventario_v4.db";
-const SCHEMA_VERSION = 4;
+const SCHEMA_VERSION = 5;
 
 let databasePromise: Promise<Database> | null = null;
 
@@ -57,6 +57,11 @@ async function addMissingColumns(db: Database) {
     { table: "productos", column: "tn_product_id", ddl: "ALTER TABLE productos ADD COLUMN tn_product_id INTEGER" },
     { table: "productos", column: "tn_updated_at", ddl: "ALTER TABLE productos ADD COLUMN tn_updated_at TEXT" },
     { table: "inventario", column: "tn_variant_id", ddl: "ALTER TABLE inventario ADD COLUMN tn_variant_id INTEGER" },
+    { table: "movimientos_stock", column: "concepto", ddl: "ALTER TABLE movimientos_stock ADD COLUMN concepto TEXT NOT NULL DEFAULT 'SIN_CLASIFICAR'" },
+    { table: "movimientos_stock", column: "precio_unitario", ddl: "ALTER TABLE movimientos_stock ADD COLUMN precio_unitario REAL NOT NULL DEFAULT 0" },
+    { table: "movimientos_stock", column: "costo_unitario", ddl: "ALTER TABLE movimientos_stock ADD COLUMN costo_unitario REAL NOT NULL DEFAULT 0" },
+    { table: "movimientos_stock", column: "importe_total", ddl: "ALTER TABLE movimientos_stock ADD COLUMN importe_total REAL NOT NULL DEFAULT 0" },
+    { table: "movimientos_stock", column: "operacion_id", ddl: "ALTER TABLE movimientos_stock ADD COLUMN operacion_id TEXT" },
   ];
 
   const columnCache = new Map<string, string[]>();
@@ -227,6 +232,23 @@ async function initializeSchema(db: Database) {
   }
 
   await addMissingColumns(db);
+  await db.execute(
+    `UPDATE movimientos_stock
+     SET concepto = CASE
+       WHEN tipo_movimiento = 'SALIDA' AND LOWER(COALESCE(motivo, '')) LIKE '%venta%' THEN 'VENTA'
+       WHEN tipo_movimiento = 'ENTRADA' THEN 'ENTRADA_OTRA'
+       WHEN tipo_movimiento = 'SALIDA' THEN 'SALIDA_OTRA'
+       ELSE 'CORRECCION_STOCK'
+     END
+     WHERE concepto = 'SIN_CLASIFICAR'`,
+  );
+  await db.execute(
+    `UPDATE movimientos_stock
+     SET precio_unitario = COALESCE((SELECT precio_venta FROM inventario WHERE inventario.id = movimientos_stock.inventario_id), 0),
+         costo_unitario = COALESCE((SELECT precio_compra FROM inventario WHERE inventario.id = movimientos_stock.inventario_id), 0),
+         importe_total = CASE WHEN concepto = 'VENTA' THEN ABS(cantidad) * COALESCE((SELECT precio_venta FROM inventario WHERE inventario.id = movimientos_stock.inventario_id), 0) ELSE 0 END
+     WHERE precio_unitario = 0 AND costo_unitario = 0`,
+  );
   await executeStatements(db, getSchemaStatements());
   await ensureEmpresaConfigRow(db);
   await db.execute(`PRAGMA user_version = ${SCHEMA_VERSION}`);

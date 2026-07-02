@@ -14,6 +14,7 @@ import {
   getMovimientos,
   getMovimientosByInventarioId,
   getProductoByCodigoBarras,
+  getResumenMensualMovimientos,
   getContactos,
   getContactosPage,
   registrarMovimientoStock,
@@ -41,7 +42,7 @@ describe("queries de inventario", () => {
   });
 
   it("registra una salida de stock en transacción", async () => {
-    mockDb.select.mockResolvedValueOnce([{ inventarioId: 7, stockActual: 5 }]);
+    mockDb.select.mockResolvedValueOnce([{ inventarioId: 7, stockActual: 5, precioVenta: 100, precioCompra: 50 }]);
     mockDb.execute.mockResolvedValue(undefined);
 
     const result = await registrarMovimientoStock({
@@ -61,7 +62,7 @@ describe("queries de inventario", () => {
     expect(mockDb.execute).toHaveBeenNthCalledWith(
       2,
       expect.stringContaining("INSERT INTO movimientos_stock"),
-      [7, "SALIDA", 2, 3, "Venta mostrador", "VENTA-1"],
+      [7, "SALIDA", "VENTA", 2, 3, "Venta mostrador", "VENTA-1", 100, 50, 200, null],
     );
   });
 
@@ -85,15 +86,12 @@ describe("queries de inventario", () => {
     );
     expect(mockDb.select).toHaveBeenNthCalledWith(
       7,
-      expect.stringContaining("WHERE m.tipo_movimiento = 'SALIDA'"),
+      expect.stringContaining("WHERE m.concepto = 'VENTA'"),
     );
   });
 
-  it("registra ventas del mes al hacer una salida", async () => {
-    const setItem = vi.fn();
-    vi.stubGlobal("localStorage", { getItem: vi.fn().mockReturnValue(null), setItem });
-
-    mockDb.select.mockResolvedValueOnce([{ inventarioId: 7, stockActual: 5, precioVenta: 100 }]);
+  it("guarda el importe y costo históricos sólo para una venta", async () => {
+    mockDb.select.mockResolvedValueOnce([{ inventarioId: 7, stockActual: 5, precioVenta: 100, precioCompra: 60 }]);
     mockDb.execute.mockResolvedValue(undefined);
 
     await registrarMovimientoStock({
@@ -104,10 +102,23 @@ describe("queries de inventario", () => {
       referencia: "VENTA-1",
     });
 
-    expect(setItem).toHaveBeenCalledWith(
-      "soft_inventario_ventas_mensuales",
-      expect.stringContaining("\"2026-06\":200"),
+    expect(mockDb.execute).toHaveBeenNthCalledWith(
+      2,
+      expect.stringContaining("importe_total"),
+      [7, "SALIDA", "VENTA", 2, 3, "Venta mostrador", "VENTA-1", 100, 60, 200, null],
     );
+  });
+
+  it("resume ventas, devoluciones, bajas, cambios y ajustes por mes", async () => {
+    mockDb.select.mockResolvedValueOnce([{ ventasBrutas: 1000, devoluciones: 200, ventasNetas: 800, unidadesVendidas: 4, comprasUnidades: 10, cambiosEntradas: 1, cambiosSalidas: 1, roturasFallasCosto: 50, vencimientosCosto: 30, regalosCosto: 20, perdidasCosto: 40, ajustesPositivos: 2, ajustesNegativos: 1 }]);
+    const summary = await getResumenMensualMovimientos("2026-07");
+    expect(summary).toMatchObject({ mes: "2026-07", ventasNetas: 800, cambiosEntradas: 1, roturasFallasCosto: 50, ajustesNegativos: 1 });
+    expect(mockDb.select).toHaveBeenCalledWith(expect.stringContaining("concepto = 'VENTA'"), ["2026-07"]);
+  });
+
+  it("exige una referencia compartida para vincular cambios", async () => {
+    await expect(registrarMovimientoStock({ inventarioId: 7, tipoMovimiento: "SALIDA", concepto: "CAMBIO_SALIDA", cantidad: 1 })).rejects.toThrow("referencia compartida");
+    expect(mockDb.select).not.toHaveBeenCalled();
   });
 
   it("impide movimientos que dejan stock negativo", async () => {

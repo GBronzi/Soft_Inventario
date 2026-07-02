@@ -1,4 +1,30 @@
-import type { MovimientoListado, TipoMovimientoStock } from "@/types";
+import type { MovimientoConcepto, MovimientoListado, TipoMovimientoStock } from "@/types";
+
+export const CONCEPTOS_POR_TIPO: Record<TipoMovimientoStock, Array<{ value: MovimientoConcepto; label: string }>> = {
+  ENTRADA: [
+    { value: "COMPRA_REPOSICION", label: "Compra / reposición" },
+    { value: "DEVOLUCION_CLIENTE", label: "Devolución de cliente" },
+    { value: "CAMBIO_ENTRADA", label: "Producto recibido por cambio" },
+    { value: "ENTRADA_OTRA", label: "Otra entrada" },
+  ],
+  SALIDA: [
+    { value: "VENTA", label: "Venta" },
+    { value: "CAMBIO_SALIDA", label: "Producto entregado por cambio" },
+    { value: "CAMBIO_GARANTIA", label: "Reemplazo por garantía / falla" },
+    { value: "ROTURA", label: "Rotura" },
+    { value: "FALLA", label: "Falla" },
+    { value: "VENCIMIENTO", label: "Vencimiento" },
+    { value: "REGALO_SORTEO", label: "Sorteo / regalo / muestra" },
+    { value: "DEVOLUCION_PROVEEDOR", label: "Devolución a proveedor" },
+    { value: "PERDIDA_FALTANTE", label: "Pérdida / faltante" },
+    { value: "SALIDA_OTRA", label: "Otra salida" },
+  ],
+  AJUSTE: [{ value: "CORRECCION_STOCK", label: "Corrección por conteo físico" }],
+};
+
+export function getConceptoLabel(concepto: MovimientoConcepto) {
+  return Object.values(CONCEPTOS_POR_TIPO).flat().find((option) => option.value === concepto)?.label ?? concepto;
+}
 
 export const VENTA_RAPIDA_LOCAL_MOTIVO = "Venta rápida local";
 export const VENTA_RAPIDA_LOCAL_REFERENCIA = "VENTA_RAPIDA_LOCAL";

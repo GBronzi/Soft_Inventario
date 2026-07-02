@@ -59,11 +59,16 @@ CREATE TABLE IF NOT EXISTS movimientos_stock (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     inventario_id INTEGER NOT NULL,
     tipo_movimiento TEXT NOT NULL,
+    concepto TEXT NOT NULL DEFAULT 'SIN_CLASIFICAR',
     cantidad INTEGER NOT NULL,
     stock_resultante INTEGER,
     fecha_movimiento DATETIME DEFAULT CURRENT_TIMESTAMP,
     motivo TEXT,
     referencia TEXT,
+    precio_unitario REAL NOT NULL DEFAULT 0,
+    costo_unitario REAL NOT NULL DEFAULT 0,
+    importe_total REAL NOT NULL DEFAULT 0,
+    operacion_id TEXT,
     FOREIGN KEY (inventario_id) REFERENCES inventario (id) ON DELETE CASCADE
 );
 
@@ -122,6 +127,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_inventario_tn_variant_id ON inventario (tn
 CREATE UNIQUE INDEX IF NOT EXISTS idx_categorias_tn_category_id ON categorias (tn_category_id) WHERE tn_category_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_producto_categorias_categoria ON producto_categorias (categoria_id);
 CREATE INDEX IF NOT EXISTS idx_movimientos_inventario_fecha ON movimientos_stock (inventario_id, fecha_movimiento DESC);
+CREATE INDEX IF NOT EXISTS idx_movimientos_concepto_fecha ON movimientos_stock (concepto, fecha_movimiento DESC);
+CREATE INDEX IF NOT EXISTS idx_movimientos_operacion ON movimientos_stock (operacion_id) WHERE operacion_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_plantillas_movimientos_inventario ON plantillas_movimientos (inventario_id, actualizado_en DESC);
 CREATE INDEX IF NOT EXISTS idx_contactos_nombre ON contactos (nombre, apellidos);
 CREATE INDEX IF NOT EXISTS idx_contactos_email ON contactos (email);

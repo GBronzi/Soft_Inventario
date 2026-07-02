@@ -4,10 +4,11 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { createMemoryRouter, RouterProvider } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { mockGetDashboardOverview, mockGetLowStockAlerts, mockGetRecentMovimientos, mockInvoke } = vi.hoisted(() => ({
+const { mockGetDashboardOverview, mockGetLowStockAlerts, mockGetRecentMovimientos, mockGetResumenMensualMovimientos, mockInvoke } = vi.hoisted(() => ({
   mockGetDashboardOverview: vi.fn(),
   mockGetLowStockAlerts: vi.fn(),
   mockGetRecentMovimientos: vi.fn(),
+  mockGetResumenMensualMovimientos: vi.fn(),
   mockInvoke: vi.fn(),
 }));
 
@@ -15,6 +16,7 @@ vi.mock("@/database/queries", () => ({
   getDashboardOverview: mockGetDashboardOverview,
   getLowStockAlerts: mockGetLowStockAlerts,
   getRecentMovimientos: mockGetRecentMovimientos,
+  getResumenMensualMovimientos: mockGetResumenMensualMovimientos,
   getProductoByCodigoBarras: vi.fn(),
   MONTHLY_SALES_UPDATED_EVENT: "soft_inventario_ventas_actualizadas",
 }));
@@ -72,13 +74,19 @@ beforeEach(() => {
       producto: "Ámbar Oud",
       variante: "50 ml",
       tipoMovimiento: "SALIDA",
+      concepto: "VENTA",
       cantidad: 1,
       stockResultante: 2,
       motivo: "Venta",
       referencia: "PED-1",
+      precioUnitario: 50000,
+      costoUnitario: 25000,
+      importeTotal: 50000,
+      operacionId: null,
       fechaMovimiento: "2026-03-11 10:00:00",
     },
   ]);
+  mockGetResumenMensualMovimientos.mockResolvedValue({ mes: "2026-07", ventasBrutas: 50000, devoluciones: 0, ventasNetas: 50000, unidadesVendidas: 1, comprasUnidades: 0, cambiosEntradas: 0, cambiosSalidas: 0, roturasFallasCosto: 0, vencimientosCosto: 0, regalosCosto: 0, perdidasCosto: 0, ajustesPositivos: 0, ajustesNegativos: 0 });
   mockInvoke.mockResolvedValue({
     isValid: true,
     holder: "Demo",
@@ -108,7 +116,7 @@ describe("Dashboard UI", () => {
   it("navega desde la acción rápida al historial de salidas", async () => {
     const router = renderDashboard();
 
-    fireEvent.click(screen.getByRole("button", { name: /Historial de salidas/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Historial de ventas/ }));
 
     await waitFor(() => {
       expect(router.state.location.pathname).toBe("/movimientos");

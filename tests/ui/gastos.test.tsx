@@ -3,8 +3,11 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+const mockGetResumenMensualMovimientos = vi.hoisted(() => vi.fn());
+
 vi.mock("@/database/queries", () => ({
   MONTHLY_SALES_UPDATED_EVENT: "soft_inventario_ventas_actualizadas",
+  getResumenMensualMovimientos: mockGetResumenMensualMovimientos,
 }));
 
 import { Gastos } from "@/pages/Gastos";
@@ -22,7 +25,7 @@ const gastoRegistrado = {
 beforeEach(() => {
   window.localStorage.clear();
   window.localStorage.setItem("soft_inventario_gastos", JSON.stringify([gastoRegistrado]));
-  window.localStorage.setItem("soft_inventario_ventas_mensuales", JSON.stringify({ "2026-06": 300000 }));
+  mockGetResumenMensualMovimientos.mockImplementation(async (mes: string) => ({ mes, ventasNetas: mes === "2026-06" ? 300000 : 0 }));
   vi.spyOn(window, "scrollTo").mockImplementation(() => undefined);
 });
 
@@ -37,7 +40,8 @@ describe("Gastos", () => {
     render(<Gastos />);
 
     expect(await screen.findByText("Alquiler mensual")).toBeTruthy();
-    expect(screen.getByText("$ 300.000,00")).toBeTruthy();
+    await waitFor(() => expect(mockGetResumenMensualMovimientos).toHaveBeenCalledWith("2026-06"));
+    expect(await screen.findByText(/300\.000,00/)).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Modificar Alquiler" }));
     fireEvent.change(screen.getByDisplayValue("Alquiler"), { target: { value: "Alquiler actualizado" } });

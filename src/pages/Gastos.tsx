@@ -6,11 +6,10 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
-import { MONTHLY_SALES_UPDATED_EVENT } from "@/database/queries";
+import { getResumenMensualMovimientos, MONTHLY_SALES_UPDATED_EVENT } from "@/database/queries";
 import type { GastoDetalle, GastoRegistro } from "@/types";
 
 const STORAGE_KEY = "soft_inventario_gastos";
-const VENTAS_STORAGE_KEY = "soft_inventario_ventas_mensuales";
 
 function getTodayDate() {
   const now = new Date();
@@ -46,32 +45,6 @@ function readStoredGastos(): GastoRegistro[] {
   }
 
   return [];
-}
-
-function readStoredVentas(): Record<string, number> {
-  if (typeof window !== "undefined" && window.localStorage) {
-    try {
-      const raw = window.localStorage.getItem(VENTAS_STORAGE_KEY);
-      if (!raw) return {};
-      const parsed = JSON.parse(raw);
-      return parsed && typeof parsed === "object" ? parsed : {};
-    } catch {
-      return {};
-    }
-  }
-
-  if (typeof globalThis !== "undefined" && "localStorage" in globalThis) {
-    try {
-      const raw = globalThis.localStorage.getItem(VENTAS_STORAGE_KEY);
-      if (!raw) return {};
-      const parsed = JSON.parse(raw);
-      return parsed && typeof parsed === "object" ? parsed : {};
-    } catch {
-      return {};
-    }
-  }
-
-  return {};
 }
 
 function formatCurrency(value: number) {
@@ -135,6 +108,7 @@ function buildCsvContent(gastos: GastoRegistro[], ventasMensuales: Record<string
 export function Gastos() {
   const [gastos, setGastos] = useState<GastoRegistro[]>([]);
   const [ventasMensuales, setVentasMensuales] = useState<Record<string, number>>({});
+  const [salesRefresh, setSalesRefresh] = useState(0);
   const [selectedMonth, setSelectedMonth] = useState(() => new Date().toISOString().slice(0, 7));
   const [form, setForm] = useState({ nombre: "", fecha: getTodayDate(), descripcion: "" });
   const [items, setItems] = useState<GastoDetalle[]>([{ id: createId(), concepto: "", valor: 0 }]);
@@ -144,10 +118,9 @@ export function Gastos() {
   useEffect(() => {
     const storedGastos = readStoredGastos();
     setGastos(storedGastos);
-    setVentasMensuales(readStoredVentas());
 
     function refreshVentas() {
-      setVentasMensuales(readStoredVentas());
+      setSalesRefresh((value) => value + 1);
     }
 
     window.addEventListener(MONTHLY_SALES_UPDATED_EVENT, refreshVentas);
@@ -157,6 +130,13 @@ export function Gastos() {
       window.removeEventListener("storage", refreshVentas);
     };
   }, []);
+
+  useEffect(() => {
+    const months = Array.from(new Set([selectedMonth, ...gastos.map((gasto) => gasto.fecha.slice(0, 7))]));
+    void Promise.all(months.map((mes) => getResumenMensualMovimientos(mes))).then((summaries) => {
+      setVentasMensuales(Object.fromEntries(summaries.map((summary) => [summary.mes, summary.ventasNetas])));
+    });
+  }, [gastos, selectedMonth, salesRefresh]);
 
   const summaries = useMemo(() => {
     const monthMap = new Map<string, { mes: string; gastos: number; registros: number }>();

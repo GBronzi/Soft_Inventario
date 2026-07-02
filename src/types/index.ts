@@ -109,14 +109,35 @@ export interface MovimientoListado {
   producto: string;
   variante: string | null;
   tipoMovimiento: string;
+  concepto: MovimientoConcepto;
   cantidad: number;
   stockResultante: number | null;
   motivo: string | null;
   referencia: string | null;
+  precioUnitario: number;
+  costoUnitario: number;
+  importeTotal: number;
+  operacionId: string | null;
   fechaMovimiento: string;
 }
 
 export type TipoMovimientoStock = "ENTRADA" | "SALIDA" | "AJUSTE";
+export type MovimientoConcepto =
+  | "COMPRA_REPOSICION"
+  | "DEVOLUCION_CLIENTE"
+  | "CAMBIO_ENTRADA"
+  | "ENTRADA_OTRA"
+  | "VENTA"
+  | "ROTURA"
+  | "FALLA"
+  | "VENCIMIENTO"
+  | "REGALO_SORTEO"
+  | "CAMBIO_SALIDA"
+  | "CAMBIO_GARANTIA"
+  | "DEVOLUCION_PROVEEDOR"
+  | "PERDIDA_FALTANTE"
+  | "SALIDA_OTRA"
+  | "CORRECCION_STOCK";
 
 export interface MovimientosFilters {
   inventarioId?: number;
@@ -136,15 +157,37 @@ export interface InventarioMovimientoOption {
   sku: string | null;
   stockActual: number;
   stockMinimo: number;
+  precioCompra: number;
+  precioVenta: number;
   estado: EstadoInventario;
 }
 
 export interface MovimientoStockDraft {
   inventarioId: number;
   tipoMovimiento: TipoMovimientoStock;
+  concepto?: MovimientoConcepto;
   cantidad: number;
   motivo?: string;
   referencia?: string;
+  importeTotal?: number;
+}
+
+export interface ResumenMensualMovimientos {
+  mes: string;
+  ventasBrutas: number;
+  devoluciones: number;
+  ventasNetas: number;
+  unidadesVendidas: number;
+  comprasUnidades: number;
+  cambiosEntradas: number;
+  cambiosSalidas: number;
+  cambiosGarantiaCosto: number;
+  roturasFallasCosto: number;
+  vencimientosCosto: number;
+  regalosCosto: number;
+  perdidasCosto: number;
+  ajustesPositivos: number;
+  ajustesNegativos: number;
 }
 
 export interface MovimientoTemplate {
