@@ -1,4 +1,5 @@
 import Database from "@tauri-apps/plugin-sql";
+import { appDataDir, join } from "@tauri-apps/api/path";
 
 import schemaSql from "@/database/schema.sql?raw";
 
@@ -300,6 +301,17 @@ export async function pingDatabase() {
   const db = await getDatabase();
   const result = await db.select<{ ok: number }[]>("SELECT 1 AS ok");
   return result[0]?.ok === 1;
+}
+
+export async function createPreUpdateBackup(version: string) {
+  const directory = await appDataDir();
+  const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const safeVersion = version.replace(/[^a-zA-Z0-9.-]/g, "_");
+  const backupPath = await join(directory, `inventario_backup_antes_v${safeVersion}_${timestamp}.db`);
+  const escapedPath = backupPath.replace(/'/g, "''");
+  const db = await getDatabase();
+  await db.execute(`VACUUM INTO '${escapedPath}'`);
+  return backupPath;
 }
 
 export { DATABASE_URL };

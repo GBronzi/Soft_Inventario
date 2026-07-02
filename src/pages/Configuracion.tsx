@@ -1,26 +1,30 @@
 import { FormEvent, useEffect, useState } from "react";
-import { invoke, convertFileSrc } from "@tauri-apps/api/core";
+import { getVersion } from "@tauri-apps/api/app";
+import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
-import { 
-  Building2, 
-  Database, 
-  ShieldCheck, 
-  Image as ImageIcon, 
-  Save, 
-  RefreshCcw, 
-  Globe, 
+import {
+  Building2,
+  Copy,
+  Database,
+  Download,
+  Globe,
   Lock,
   HardDrive,
+  Image as ImageIcon,
   KeyRound,
-  Copy,
-  UserRoundCog
+  PackageCheck,
+  RefreshCcw,
+  Save,
+  ShieldCheck,
+  UserRoundCog,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { DATABASE_URL, pingDatabase } from "@/database/db";
+import { createPreUpdateBackup, DATABASE_URL, pingDatabase } from "@/database/db";
+import { checkForUpdate, type AvailableUpdate } from "@/lib/updater";
 import { getConfiguracionEmpresa, saveConfiguracionEmpresa } from "@/database/queries";
 import type { AuthStatus, ConfiguracionEmpresaDraft, LicenseStatus } from "@/types";
 
@@ -45,6 +49,11 @@ export function Configuracion() {
   const [recoveryCode, setRecoveryCode] = useState<string | null>(null);
   const [recoveryPassword, setRecoveryPassword] = useState("");
   const [securitySaving, setSecuritySaving] = useState(false);
+  const [appVersion, setAppVersion] = useState("1.0.4");
+  const [availableUpdate, setAvailableUpdate] = useState<AvailableUpdate | null>(null);
+  const [updateStatus, setUpdateStatus] = useState<string | null>(null);
+  const [checkingUpdate, setCheckingUpdate] = useState(false);
+  const [updateProgress, setUpdateProgress] = useState(0);
 
   const loadData = async () => {
     try {
@@ -71,7 +80,44 @@ export function Configuracion() {
 
   useEffect(() => {
     void loadData();
+    void getVersion().then(setAppVersion).catch(() => undefined);
   }, []);
+
+  async function handleCheckForUpdates() {
+    setCheckingUpdate(true);
+    setUpdateStatus("Buscando actualizaciones...");
+    try {
+      const nextUpdate = await checkForUpdate();
+      setAvailableUpdate(nextUpdate);
+      setUpdateStatus(nextUpdate ? `Versión ${nextUpdate.version} disponible.` : "El programa está actualizado.");
+    } catch (error) {
+      setUpdateStatus(`Error al buscar actualizaciones: ${String(error)}`);
+    } finally {
+      setCheckingUpdate(false);
+    }
+  }
+
+  async function handleInstallUpdate() {
+    if (!availableUpdate) return;
+    setCheckingUpdate(true);
+    setUpdateStatus("Creando respaldo y descargando...");
+    try {
+      await availableUpdate.install(setUpdateProgress);
+    } catch (error) {
+      setUpdateStatus(`Error al instalar: ${String(error)}`);
+      setCheckingUpdate(false);
+    }
+  }
+
+  async function handleManualBackup() {
+    setUpdateStatus("Creando respaldo...");
+    try {
+      const path = await createPreUpdateBackup(appVersion);
+      setUpdateStatus(`Respaldo creado en: ${path}`);
+    } catch (error) {
+      setUpdateStatus(`Error al crear respaldo: ${String(error)}`);
+    }
+  }
 
   async function handleSelectLogo() {
     try {
@@ -288,6 +334,22 @@ export function Configuracion() {
         <div className="lg:col-span-12 xl:col-span-4 space-y-6">
           <Card className="border-none shadow-xl bg-card/60 backdrop-blur-md">
             <CardHeader className="pb-3">
+              <CardTitle className="flex items-center gap-2 text-sm font-black uppercase tracking-widest opacity-60"><PackageCheck className="size-4" /> Actualizaciones</CardTitle>
+              <CardDescription>Versión instalada: {appVersion}</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {updateStatus && <p role="status" className={`text-xs ${updateStatus.startsWith("Error") ? "text-rose-500" : "text-muted-foreground"}`}>{updateStatus}</p>}
+              {checkingUpdate && updateProgress > 0 && <div className="h-2 overflow-hidden rounded-full bg-muted"><div className="h-full bg-primary transition-all" style={{ width: `${updateProgress}%` }} /></div>}
+              {availableUpdate ? (
+                <Button className="w-full gap-2" disabled={checkingUpdate} onClick={() => void handleInstallUpdate()}><Download className="size-4" /> {checkingUpdate ? `Descargando ${updateProgress}%` : `Instalar versión ${availableUpdate.version}`}</Button>
+              ) : (
+                <Button variant="outline" className="w-full gap-2" disabled={checkingUpdate} onClick={() => void handleCheckForUpdates()}><RefreshCcw className={`size-4 ${checkingUpdate ? "animate-spin" : ""}`} /> Buscar actualizaciones</Button>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card className="border-none shadow-xl bg-card/60 backdrop-blur-md">
+            <CardHeader className="pb-3">
                <CardTitle className="text-sm font-black uppercase tracking-widest opacity-40 flex items-center gap-2">
                   <Database className="size-4" /> Base de Datos
                </CardTitle>
@@ -347,7 +409,7 @@ export function Configuracion() {
                     <h3 className="font-black text-xl">Backup Local</h3>
                     <p className="text-xs opacity-70">Haz una copia manual de tu base de datos SQLite ahora mismo.</p>
                   </div>
-                  <Button variant="secondary" className="w-full rounded-xl font-bold h-11 bg-white text-primary hover:bg-white/90 shadow-2xl">
+                  <Button variant="secondary" onClick={() => void handleManualBackup()} className="w-full rounded-xl font-bold h-11 bg-white text-primary hover:bg-white/90 shadow-2xl">
                     Crear Backup (.db)
                   </Button>
                </div>

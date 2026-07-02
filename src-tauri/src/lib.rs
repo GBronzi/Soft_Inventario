@@ -84,7 +84,9 @@ pub fn run() {
     // lugar de abrir una segunda ventana.
     #[cfg(desktop)]
     {
-        builder = builder.plugin(tauri_plugin_single_instance::init(|_app, _argv, _cwd| {}));
+        builder = builder
+            .plugin(tauri_plugin_updater::Builder::new().build())
+            .plugin(tauri_plugin_single_instance::init(|_app, _argv, _cwd| {}));
     }
 
     builder
