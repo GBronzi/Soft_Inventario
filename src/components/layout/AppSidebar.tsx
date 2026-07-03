@@ -10,7 +10,7 @@ import type { ConfiguracionEmpresa } from "@/types";
 
 export function AppSidebar() {
   const [config, setConfig] = useState<ConfiguracionEmpresa | null>(null);
-  const [appVersion, setAppVersion] = useState("1.0.5");
+  const [appVersion, setAppVersion] = useState("1.0.6");
 
   useEffect(() => {
     void getConfiguracionEmpresa().then(setConfig);

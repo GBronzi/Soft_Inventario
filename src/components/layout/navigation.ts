@@ -21,7 +21,7 @@ export interface NavigationItem {
 export const navigationItems: NavigationItem[] = [
   {
     to: "/dashboard",
-    label: "Dashboard",
+    label: "Vista general",
     description: "Vista general del inventario.",
     icon: Gauge,
     matches: (pathname) => pathname.startsWith("/dashboard"),

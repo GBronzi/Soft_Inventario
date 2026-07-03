@@ -1,12 +1,27 @@
-import { Link, useLocation } from "react-router-dom";
+import { useSyncExternalStore } from "react";
+import { Link } from "react-router-dom";
 import { getActiveNavigationItem } from "@/components/layout/navigation";
 import { ThemeToggle } from "@/components/shared/ThemeToggle";
 import { LogOut } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 
 export function Topbar() {
-  const location = useLocation();
-  const activeItem = getActiveNavigationItem(location.pathname);
+  const pathname = useSyncExternalStore(
+    (onStoreChange) => {
+      window.addEventListener("hashchange", onStoreChange);
+      window.addEventListener("popstate", onStoreChange);
+      return () => {
+        window.removeEventListener("hashchange", onStoreChange);
+        window.removeEventListener("popstate", onStoreChange);
+      };
+    },
+    () => {
+      const hashPath = window.location.hash.replace(/^#/, "").split("?")[0];
+      return hashPath || "/dashboard";
+    },
+    () => "/dashboard",
+  );
+  const activeItem = getActiveNavigationItem(pathname);
   const { logout } = useAuth();
 
   return (

@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { Boxes, ClipboardList, History, PackageSearch, ShoppingCart, TriangleAlert, Wallet } from "lucide-react";
+import { Boxes, ClipboardList, History, PackageSearch, TriangleAlert, Wallet } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
@@ -28,7 +28,6 @@ const initialStats: DashboardStats = {
   variantesBajoStock: 0,
   movimientosHoy: 0,
   totalInvertido: 0,
-  totalVentasSalidas: 0,
 };
 
 function getTodayDateParam() {
@@ -137,13 +136,12 @@ export function Dashboard() {
     <div className="space-y-8 animate-in fade-in duration-500">
       <EscanerBluetoothPanel />
       <section>
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
           <ResumenCard className="border-l-4 border-l-blue-500 shadow-sm hover:shadow-md transition-shadow" actionLabel="Abrir catálogo" description="Productos activos" icon={<Boxes className="size-5 text-blue-500" />} onClick={() => navigate("/catalogo")} title="Productos" value={stats.totalProductos} />
-          <ResumenCard className="border-l-4 border-l-purple-500 shadow-sm hover:shadow-md transition-shadow" actionLabel="Ver productos con variantes" description="Presentaciones" icon={<Boxes className="size-5 text-purple-500" />} onClick={() => navigate("/catalogo")} title="Con variantes" value={stats.totalVariantes} />
+          <ResumenCard className="border-l-4 border-l-purple-500 shadow-sm hover:shadow-md transition-shadow" actionLabel="Ver productos con variantes" description="Productos con 2 o más presentaciones" icon={<Boxes className="size-5 text-purple-500" />} onClick={() => navigate("/catalogo?conVariantes=1")} title="Productos con variantes" value={stats.totalVariantes} />
           <ResumenCard className="border-l-4 border-l-emerald-500 shadow-sm hover:shadow-md transition-shadow" actionLabel="Revisar stock" description="Unidades totales" icon={<PackageSearch className="size-5 text-emerald-500" />} onClick={() => navigate("/catalogo?estado=ACTIVO")} title="Stock total" value={stats.stockTotal} />
           <ResumenCard className="border-l-4 border-l-rose-500 shadow-sm hover:shadow-md transition-shadow" actionLabel="Ver bajo stock" description="Reponer urgente" icon={<TriangleAlert className="size-5 text-rose-500" />} onClick={() => navigate("/catalogo?bajoStock=1")} title="Bajo stock" value={stats.variantesBajoStock} />
           <ResumenCard className="border-l-4 border-l-amber-500 shadow-sm hover:shadow-md transition-shadow" actionLabel="Ver hoy" description="Movimientos" icon={<ClipboardList className="size-5 text-amber-500" />} onClick={() => navigate(`/movimientos?fechaDesde=${todayDateParam}&fechaHasta=${todayDateParam}`)} title="Hoy" value={stats.movimientosHoy} />
-          <ResumenCard className="border-l-4 border-l-indigo-500 shadow-sm hover:shadow-md transition-shadow" valueClassName="break-words text-2xl leading-tight tabular-nums" actionLabel="Historial de ventas" description="Sólo salidas clasificadas como venta" icon={<ShoppingCart className="size-5 text-indigo-500" />} onClick={() => navigate("/movimientos?tipoMovimiento=SALIDA")} title="Ventas" value={currencyFormatter.format(stats.totalVentasSalidas).replace("ARS", "$")} />
         </div>
       </section>
 
@@ -204,11 +202,13 @@ export function Dashboard() {
                   </div>
                   <div className="rounded-xl bg-rose-500/10 p-3 text-xs">
                     <p className="font-bold text-rose-700">Devoluciones: {currencyFormatter.format(monthlySummary?.devoluciones ?? 0)}</p>
-                    <p className="mt-1 text-muted-foreground">Roturas/fallas: {currencyFormatter.format(monthlySummary?.roturasFallasCosto ?? 0)} · Vencidos: {currencyFormatter.format(monthlySummary?.vencimientosCosto ?? 0)}</p>
+                    <p className="mt-1 text-muted-foreground">Roturas/fallas: {currencyFormatter.format(monthlySummary?.roturasFallasCosto ?? 0)} · {monthlySummary?.roturasFallasUnidades ?? 0} u.</p>
+                    <p className="mt-1 text-muted-foreground">Vencidos: {currencyFormatter.format(monthlySummary?.vencimientosCosto ?? 0)} · {monthlySummary?.vencimientosUnidades ?? 0} u.</p>
                   </div>
                   <div className="rounded-xl bg-amber-500/10 p-3 text-xs">
                     <p className="font-bold text-amber-700">Cambios: +{monthlySummary?.cambiosEntradas ?? 0} / -{monthlySummary?.cambiosSalidas ?? 0} u.</p>
-                    <p className="mt-1 text-muted-foreground">Garantías: {currencyFormatter.format(monthlySummary?.cambiosGarantiaCosto ?? 0)} · Regalos: {currencyFormatter.format(monthlySummary?.regalosCosto ?? 0)} · Faltantes: {currencyFormatter.format(monthlySummary?.perdidasCosto ?? 0)}</p>
+                    <p className="mt-1 text-muted-foreground">Garantías: {currencyFormatter.format(monthlySummary?.cambiosGarantiaCosto ?? 0)} · {monthlySummary?.cambiosGarantiaUnidades ?? 0} u.</p>
+                    <p className="mt-1 text-muted-foreground">Regalos: {currencyFormatter.format(monthlySummary?.regalosCosto ?? 0)} · Faltantes: {currencyFormatter.format(monthlySummary?.perdidasCosto ?? 0)}</p>
                   </div>
                 </div>
                 <p className="mt-3 text-xs text-muted-foreground">Ajustes de stock: +{monthlySummary?.ajustesPositivos ?? 0} / -{monthlySummary?.ajustesNegativos ?? 0} u. · Compras: {monthlySummary?.comprasUnidades ?? 0} u. · Gastos: {currencyFormatter.format(monthlySummary?.gastos ?? 0)}</p>

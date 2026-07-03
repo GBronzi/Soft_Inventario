@@ -6,6 +6,7 @@ import { getDatabase } from "@/database/db";
 import {
   deleteMovimientoTemplate,
   createContacto,
+  createProductoConVariantes,
   deleteContacto,
   deleteInventarioSeguro,
   getCatalogoProductos,
@@ -14,6 +15,7 @@ import {
   getMovimientos,
   getMovimientosByInventarioId,
   getProductoByCodigoBarras,
+  getVariantesByProductoId,
   getResumenMensualMovimientos,
   getContactos,
   getContactosPage,
@@ -73,20 +75,50 @@ describe("queries de inventario", () => {
       .mockResolvedValueOnce([{ total: 24 }])
       .mockResolvedValueOnce([{ total: 1 }])
       .mockResolvedValueOnce([{ total: 2 }])
-      .mockResolvedValueOnce([{ total: 1250 }])
-      .mockResolvedValueOnce([{ total: 5000 }]);
+      .mockResolvedValueOnce([{ total: 1250 }]);
 
     const result = await getDashboardOverview();
 
     expect(result.totalVariantes).toBe(3);
-    expect(result.totalVentasSalidas).toBe(5000);
     expect(mockDb.select).toHaveBeenNthCalledWith(
       2,
       expect.stringContaining("productos_con_variantes"),
     );
-    expect(mockDb.select).toHaveBeenNthCalledWith(
-      7,
-      expect.stringContaining("WHERE m.concepto = 'VENTA'"),
+    expect(mockDb.select).toHaveBeenCalledTimes(6);
+  });
+
+  it("crea varias variantes dentro de un mismo producto", async () => {
+    mockDb.execute
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce({ lastInsertId: 15 })
+      .mockResolvedValueOnce({ lastInsertId: 21 })
+      .mockResolvedValueOnce({ lastInsertId: 22 })
+      .mockResolvedValueOnce(undefined);
+    mockDb.select
+      .mockResolvedValueOnce([{ inventarioId: 21 }])
+      .mockResolvedValueOnce([{ id: 15 }]);
+
+    const result = await createProductoConVariantes({
+      nombre: "Perfume agrupado",
+      variante: "Sellado",
+      capacidadMedida: "100 ml",
+      stockInicial: 0,
+      stockMinimo: 1,
+      estado: "ACTIVO",
+    }, [{
+      variante: "Tester",
+      capacidadMedida: "100 ml",
+      stockInicial: 0,
+      stockMinimo: 1,
+      estado: "ACTIVO",
+    }]);
+
+    expect(result).toEqual({ productoId: 15, inventarioIds: [21, 22] });
+    expect(mockDb.execute).toHaveBeenNthCalledWith(1, "BEGIN");
+    expect(mockDb.execute).toHaveBeenLastCalledWith("COMMIT");
+    expect(mockDb.execute).toHaveBeenCalledWith(
+      expect.stringContaining("INSERT INTO inventario"),
+      expect.arrayContaining([15, "Tester", "100 ml"]),
     );
   });
 
@@ -110,10 +142,29 @@ describe("queries de inventario", () => {
   });
 
   it("resume ventas, devoluciones, bajas, cambios y ajustes por mes", async () => {
-    mockDb.select.mockResolvedValueOnce([{ ventasBrutas: 1000, devoluciones: 200, ventasNetas: 800, unidadesVendidas: 4, comprasUnidades: 10, cambiosEntradas: 1, cambiosSalidas: 1, roturasFallasCosto: 50, vencimientosCosto: 30, regalosCosto: 20, perdidasCosto: 40, ajustesPositivos: 2, ajustesNegativos: 1 }]);
+    mockDb.select.mockResolvedValueOnce([{ ventasBrutas: 1000, devoluciones: 200, ventasNetas: 800, unidadesVendidas: 4, comprasUnidades: 10, cambiosEntradas: 1, cambiosSalidas: 1, cambiosGarantiaUnidades: 1, roturasFallasCosto: 50, roturasFallasUnidades: 2, vencimientosCosto: 30, vencimientosUnidades: 3, regalosCosto: 20, perdidasCosto: 40, ajustesPositivos: 2, ajustesNegativos: 1 }]);
     const summary = await getResumenMensualMovimientos("2026-07");
-    expect(summary).toMatchObject({ mes: "2026-07", ventasNetas: 800, cambiosEntradas: 1, roturasFallasCosto: 50, ajustesNegativos: 1 });
+    expect(summary).toMatchObject({ mes: "2026-07", ventasNetas: 800, cambiosEntradas: 1, roturasFallasCosto: 50, roturasFallasUnidades: 2, vencimientosUnidades: 3, ajustesNegativos: 1 });
     expect(mockDb.select).toHaveBeenCalledWith(expect.stringContaining("concepto = 'VENTA'"), ["2026-07"]);
+  });
+
+  it("guarda el costo manual de una baja no comercial", async () => {
+    mockDb.select.mockResolvedValueOnce([{ inventarioId: 7, stockActual: 5, precioVenta: 100, precioCompra: 0 }]);
+    mockDb.execute.mockResolvedValue(undefined);
+
+    await registrarMovimientoStock({
+      inventarioId: 7,
+      tipoMovimiento: "SALIDA",
+      concepto: "FALLA",
+      cantidad: 2,
+      costoUnitario: 45,
+    });
+
+    expect(mockDb.execute).toHaveBeenNthCalledWith(
+      2,
+      expect.stringContaining("INSERT INTO movimientos_stock"),
+      [7, "SALIDA", "FALLA", 2, 3, null, null, 100, 45, 0, null],
+    );
   });
 
   it("exige una referencia compartida para vincular cambios", async () => {
@@ -229,6 +280,20 @@ describe("queries de inventario", () => {
     expect(mockDb.select).toHaveBeenCalledWith(
       expect.stringContaining("WHERE TRIM(i.codigo_barras) = $1"),
       ["7791234567890"],
+    );
+  });
+
+  it("lista todas las variantes de un mismo producto", async () => {
+    const variantes = [
+      { inventarioId: 7, variante: "100 ml", capacidadMedida: "100 ml", stockActual: 2 },
+      { inventarioId: 8, variante: "Tester", capacidadMedida: "100 ml", stockActual: 1 },
+    ];
+    mockDb.select.mockResolvedValueOnce(variantes);
+
+    await expect(getVariantesByProductoId(3)).resolves.toEqual(variantes);
+    expect(mockDb.select).toHaveBeenCalledWith(
+      expect.stringContaining("WHERE producto_id = $1"),
+      [3],
     );
   });
 

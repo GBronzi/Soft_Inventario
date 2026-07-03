@@ -19,8 +19,13 @@ export interface DashboardStats {
   variantesBajoStock: number;
   movimientosHoy: number;
   totalInvertido: number;
-  totalVentasSalidas: number;
 }
+
+export type VarianteProductoDraft = Pick<ProductoDraft,
+  | "variante" | "capacidadMedida" | "codigoBarras" | "sku"
+  | "precioCompra" | "precioVenta" | "stockInicial" | "stockMinimo"
+  | "ubicacion" | "lote" | "vencimiento" | "fechaIngreso" | "estado"
+>;
 
 export interface StockAlert {
   inventarioId: number;
@@ -85,6 +90,11 @@ export interface CatalogoItem {
 export interface ProductoDetalle extends CatalogoItem {
   categorias?: CategoriaRef[];
 }
+
+export type ProductoVarianteResumen = Pick<CatalogoItem,
+  | "inventarioId" | "variante" | "capacidadMedida" | "sku" | "codigoBarras"
+  | "precioCompra" | "precioVenta" | "stockActual" | "stockMinimo" | "estado"
+>;
 
 export interface CategoriaRef {
   id: number;
@@ -170,6 +180,7 @@ export interface MovimientoStockDraft {
   motivo?: string;
   referencia?: string;
   importeTotal?: number;
+  costoUnitario?: number;
 }
 
 export interface ResumenMensualMovimientos {
@@ -182,8 +193,11 @@ export interface ResumenMensualMovimientos {
   cambiosEntradas: number;
   cambiosSalidas: number;
   cambiosGarantiaCosto: number;
+  cambiosGarantiaUnidades: number;
   roturasFallasCosto: number;
+  roturasFallasUnidades: number;
   vencimientosCosto: number;
+  vencimientosUnidades: number;
   regalosCosto: number;
   perdidasCosto: number;
   ajustesPositivos: number;

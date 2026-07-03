@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { createProducto, getProductoByInventarioId, updateProducto, getUniqueCapacidades, getUniqueMarcas, getProductoCategorias, getCategoriasArbol } from "@/database/queries";
+import { createProductoConVariantes, getProductoByInventarioId, updateProducto, getUniqueCapacidades, getUniqueMarcas, getProductoCategorias, getCategoriasArbol } from "@/database/queries";
 import { buildTiendanubeSyncFeedbackMessage, pushInventarioIdATiendanube } from "@/api/tiendanube";
 import type { CategoriaRef, CategoriaTreeNode, EstadoInventario } from "@/types";
 import { flattenCategoriaTreeOptions } from "@/lib/utils";
@@ -39,6 +39,38 @@ const initialForm = {
   estado: "ACTIVO" as EstadoInventario,
 };
 
+type VariantForm = Pick<typeof initialForm,
+  "variante" | "capacidadMedida" | "sku" | "codigoBarras" | "precioCompra" |
+  "precioVenta" | "stockInicial" | "stockMinimo" | "ubicacion" | "lote" |
+  "vencimiento" | "fechaIngreso" | "estado"
+>;
+
+const createEmptyVariant = (): VariantForm => ({
+  variante: "",
+  capacidadMedida: "",
+  sku: "",
+  codigoBarras: "",
+  precioCompra: "0",
+  precioVenta: "0",
+  stockInicial: "0",
+  stockMinimo: "0",
+  ubicacion: "",
+  lote: "",
+  vencimiento: "",
+  fechaIngreso: "",
+  estado: "ACTIVO",
+});
+
+function normalizeVariant(form: VariantForm) {
+  return {
+    ...form,
+    precioCompra: parseFloat(String(form.precioCompra).replace(",", ".")) || 0,
+    precioVenta: parseFloat(String(form.precioVenta).replace(",", ".")) || 0,
+    stockInicial: parseInt(String(form.stockInicial), 10) || 0,
+    stockMinimo: parseInt(String(form.stockMinimo), 10) || 0,
+  };
+}
+
 const selectClassName =
   "h-10 w-full rounded-xl border border-border/50 bg-background/50 px-3 py-2 text-sm text-foreground outline-none transition-all focus:ring-2 focus:ring-primary/20 appearance-none";
 
@@ -66,6 +98,7 @@ export function ProductoForm() {
 
   const [isNewMarca, setIsNewMarca] = useState(false);
   const [isNewCapacidad, setIsNewCapacidad] = useState(false);
+  const [extraVariants, setExtraVariants] = useState<VariantForm[]>([]);
 
   useEffect(() => {
     async function fetchOptions() {
@@ -156,12 +189,19 @@ export function ProductoForm() {
           setStatus({ tone: "info", message: "Los cambios se guardaron localmente. La sincronización con Tiendanube se reintentará más tarde." });
         }
       } else {
-        const inventarioId = await createProducto(payload as any);
+        const created = await createProductoConVariantes(payload as any, extraVariants.map(normalizeVariant));
         setForm(initialForm);
-        setStatus({ tone: "success", message: "Producto registrado con éxito." });
+        setExtraVariants([]);
+        setStatus({ tone: "success", message: `Producto registrado con ${created.inventarioIds.length} variante/s.` });
         try {
-          const syncResult = await pushInventarioIdATiendanube(inventarioId);
-          setStatus({ tone: "success", message: buildTiendanubeSyncFeedbackMessage({ isEditing, categoryAssigned: syncResult.categoryAssigned }) });
+          const syncResult = await pushInventarioIdATiendanube(created.inventarioIds[0]);
+          const syncMessage = buildTiendanubeSyncFeedbackMessage({ isEditing, categoryAssigned: syncResult.categoryAssigned });
+          setStatus({
+            tone: "success",
+            message: extraVariants.length > 0
+              ? `${syncMessage} Las variantes adicionales quedaron guardadas localmente; la sincronización saliente múltiple no fue modificada.`
+              : syncMessage,
+          });
         } catch (syncErr) {
           console.warn("No se pudo sincronizar el producto nuevo con Tiendanube:", syncErr);
           setStatus({ tone: "error", message: "Producto creado localmente. La sincronización con Tiendanube falló (se reintentará)." });
@@ -328,6 +368,47 @@ export function ProductoForm() {
               </div>
             </CardContent>
           </Card>
+
+          {!isEditing && (
+            <Card className="border-none shadow-xl bg-card/60 backdrop-blur-md">
+              <CardHeader className="flex flex-row items-center justify-between gap-4">
+                <div>
+                  <CardTitle className="text-sm flex items-center gap-2 uppercase tracking-widest opacity-60"><Package className="size-4" /> Variantes adicionales</CardTitle>
+                  <p className="mt-1 text-xs text-muted-foreground">Todas quedarán agrupadas dentro de este mismo producto.</p>
+                </div>
+                <Button type="button" variant="outline" onClick={() => setExtraVariants((current) => [...current, createEmptyVariant()])} className="shrink-0 gap-2 rounded-xl"><Plus className="size-4" /> Agregar variante</Button>
+              </CardHeader>
+              {extraVariants.length > 0 && (
+                <CardContent className="space-y-4">
+                  {extraVariants.map((variant, index) => {
+                    const update = (values: Partial<VariantForm>) => setExtraVariants((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, ...values } : item));
+                    return (
+                      <div key={index} className="rounded-xl border border-border/70 bg-background/40 p-4">
+                        <div className="mb-4 flex items-center justify-between">
+                          <p className="text-sm font-bold">Variante {index + 2}</p>
+                          <Button type="button" variant="ghost" size="icon" onClick={() => setExtraVariants((current) => current.filter((_, itemIndex) => itemIndex !== index))} aria-label={`Eliminar variante ${index + 2}`} title="Eliminar variante"><X className="size-4" /></Button>
+                        </div>
+                        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                          <label className="space-y-1 text-xs"><span className="font-semibold">Tipo</span><Input value={variant.variante} onChange={(e) => update({ variante: e.target.value })} placeholder="Sellado, tester..." /></label>
+                          <label className="space-y-1 text-xs"><span className="font-semibold">Presentación</span><Input value={variant.capacidadMedida} onChange={(e) => update({ capacidadMedida: e.target.value })} placeholder="100 ml" /></label>
+                          <label className="space-y-1 text-xs"><span className="font-semibold">SKU</span><Input value={variant.sku} onChange={(e) => update({ sku: e.target.value })} /></label>
+                          <label className="space-y-1 text-xs"><span className="font-semibold">Código de barras</span><Input value={variant.codigoBarras} onChange={(e) => update({ codigoBarras: e.target.value })} /></label>
+                          <label className="space-y-1 text-xs"><span className="font-semibold">Costo</span><Input type="number" step="0.01" value={variant.precioCompra} onChange={(e) => update({ precioCompra: e.target.value })} /></label>
+                          <label className="space-y-1 text-xs"><span className="font-semibold">Precio de venta</span><Input type="number" step="0.01" value={variant.precioVenta} onChange={(e) => update({ precioVenta: e.target.value })} /></label>
+                          <label className="space-y-1 text-xs"><span className="font-semibold">Stock inicial</span><Input type="number" value={variant.stockInicial} onChange={(e) => update({ stockInicial: e.target.value })} /></label>
+                          <label className="space-y-1 text-xs"><span className="font-semibold">Stock mínimo</span><Input type="number" value={variant.stockMinimo} onChange={(e) => update({ stockMinimo: e.target.value })} /></label>
+                          <label className="space-y-1 text-xs"><span className="font-semibold">Ubicación</span><Input value={variant.ubicacion} onChange={(e) => update({ ubicacion: e.target.value })} /></label>
+                          <label className="space-y-1 text-xs"><span className="font-semibold">Lote</span><Input value={variant.lote} onChange={(e) => update({ lote: e.target.value })} /></label>
+                          <label className="space-y-1 text-xs"><span className="font-semibold">Vencimiento</span><Input type="date" value={variant.vencimiento} onChange={(e) => update({ vencimiento: e.target.value })} /></label>
+                          <label className="space-y-1 text-xs"><span className="font-semibold">Estado</span><select className={selectClassName} value={variant.estado} onChange={(e) => update({ estado: e.target.value as EstadoInventario })}><option value="ACTIVO">Activo</option><option value="PAUSADO">Pausado</option><option value="DISCONTINUADO">Discontinuado</option></select></label>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </CardContent>
+              )}
+            </Card>
+          )}
 
           {/* Bloque 2: Presentación */}
           <Card className="border-none shadow-xl bg-card/60 backdrop-blur-md">

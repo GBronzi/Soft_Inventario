@@ -41,6 +41,7 @@ const TYPE_META: Record<TipoMovimientoStock, { label: string; short: string; ico
 
 const selectClassName = "h-10 w-full rounded-md border border-border bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-ring/30";
 const PAGE_SIZE = 25;
+const COST_IMPACT_CONCEPTS: MovimientoConcepto[] = ["ROTURA", "FALLA", "VENCIMIENTO", "REGALO_SORTEO", "CAMBIO_GARANTIA", "PERDIDA_FALTANTE"];
 
 function defaultConcept(tipo: TipoMovimientoStock) {
   return CONCEPTOS_POR_TIPO[tipo][0].value;
@@ -72,6 +73,7 @@ export function Movimientos() {
     concepto: defaultConcept(initialType),
     cantidad: searchParams.get("presetCantidad") ?? "1",
     importeTotal: "",
+    costoUnitario: "",
     referencia: searchParams.get("presetReferencia") ?? "",
     motivo: searchParams.get("presetMotivo") ?? "",
   });
@@ -101,6 +103,8 @@ export function Movimientos() {
   const resultingStock = selectedInventory ? calculateResult(selectedInventory.stockActual, form.tipoMovimiento, quantity) : null;
   const isExchange = form.concepto === "CAMBIO_ENTRADA" || form.concepto === "CAMBIO_SALIDA";
   const isCommercial = form.concepto === "VENTA" || form.concepto === "DEVOLUCION_CLIENTE";
+  const hasCostImpact = COST_IMPACT_CONCEPTS.includes(form.concepto);
+  const effectiveUnitCost = form.costoUnitario === "" ? Number(selectedInventory?.precioCompra ?? 0) : Number(form.costoUnitario);
 
   useEffect(() => {
     void getInventarioMovimientoOptions().then(setInventarioOptions);
@@ -157,6 +161,7 @@ export function Movimientos() {
         concepto: form.concepto,
         cantidad: Number(form.cantidad),
         importeTotal: form.importeTotal ? Number(form.importeTotal) : undefined,
+        costoUnitario: hasCostImpact ? effectiveUnitCost : undefined,
         referencia: form.referencia,
         motivo: form.motivo,
       });
@@ -165,7 +170,7 @@ export function Movimientos() {
       } catch (error) {
         console.warn("No se pudo sincronizar el stock con Tiendanube:", error);
       }
-      setForm((current) => ({ ...current, cantidad: "1", importeTotal: "", referencia: "", motivo: "" }));
+      setForm((current) => ({ ...current, cantidad: "1", importeTotal: "", costoUnitario: "", referencia: "", motivo: "" }));
       setStatus("Movimiento registrado y stock actualizado.");
       notifyMonthlySalesUpdate();
       void getInventarioMovimientoOptions().then(setInventarioOptions);
@@ -245,7 +250,10 @@ export function Movimientos() {
                   <div className={`grid gap-3 ${isCommercial ? "grid-cols-2" : "grid-cols-1"}`}>
                     <label className="space-y-1.5 text-sm font-semibold"><span>{form.tipoMovimiento === "AJUSTE" ? "Diferencia (+/-)" : "Cantidad"}</span><Input aria-label="Cantidad del movimiento" type="number" step="1" value={form.cantidad} onChange={(event) => setForm({ ...form, cantidad: event.target.value })} /></label>
                     {isCommercial && <label className="space-y-1.5 text-sm font-semibold"><span>Importe total</span><Input aria-label="Importe total histórico" type="number" min="0" step="0.01" value={form.importeTotal} onChange={(event) => setForm({ ...form, importeTotal: event.target.value })} placeholder={selectedInventory ? String(selectedInventory.precioVenta * Math.abs(quantity || 0)) : "0"} /></label>}
+                    {hasCostImpact && <label className="space-y-1.5 text-sm font-semibold"><span>Costo unitario de la pérdida</span><Input aria-label="Costo unitario del movimiento" type="number" min="0" step="0.01" value={form.costoUnitario} onChange={(event) => setForm({ ...form, costoUnitario: event.target.value })} placeholder={selectedInventory ? String(selectedInventory.precioCompra) : "0"} /></label>}
                   </div>
+                  {hasCostImpact && selectedInventory && effectiveUnitCost <= 0 && <div className="flex gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-800"><TriangleAlert className="mt-0.5 size-4 shrink-0" /><p>Este producto no tiene costo de compra. El movimiento contará sus unidades, pero el impacto monetario será $0 hasta que indique un costo unitario.</p></div>}
+                  {hasCostImpact && selectedInventory && effectiveUnitCost > 0 && <p className="text-xs text-muted-foreground">Impacto estimado al costo: <span className="font-bold">{new Intl.NumberFormat("es-AR", { style: "currency", currency: "ARS" }).format(effectiveUnitCost * Math.abs(quantity || 0))}</span></p>}
                   <div className={`rounded-md border p-3 ${resultingStock !== null && resultingStock < 0 ? "border-rose-500/40 bg-rose-500/10" : "border-border bg-muted/30"}`}>
                     {selectedInventory ? <div className="flex items-center justify-between"><div><p className="text-xs text-muted-foreground">Stock resultante</p><p className="text-sm font-semibold">{selectedInventory.stockActual} u. <ChevronRight className="mx-1 inline size-3" /> {resultingStock} u.</p></div><Package className="size-5 text-muted-foreground" /></div> : <p className="text-xs text-muted-foreground">Selecciona un producto para calcular el stock resultante.</p>}
                   </div>
@@ -286,7 +294,7 @@ export function Movimientos() {
               </div>
               <div className="overflow-x-auto">
                 <Table>
-                  <TableHeader><TableRow><TableHead className="pl-4">Fecha</TableHead><TableHead>Producto</TableHead><TableHead>Operación</TableHead><TableHead className="text-right">Cantidad</TableHead><TableHead className="text-right">Stock</TableHead><TableHead className="text-right">Importe</TableHead><TableHead>Referencia / notas</TableHead></TableRow></TableHeader>
+                  <TableHeader><TableRow><TableHead className="pl-4">Fecha</TableHead><TableHead>Producto</TableHead><TableHead>Operación</TableHead><TableHead className="text-right">Cantidad</TableHead><TableHead className="text-right">Stock</TableHead><TableHead className="text-right">Importe / costo</TableHead><TableHead>Referencia / notas</TableHead></TableRow></TableHeader>
                   <TableBody>
                     {movimientos.length === 0 ? <TableRow><TableCell colSpan={7} className="h-48 text-center text-muted-foreground">No hay movimientos para los filtros seleccionados.</TableCell></TableRow> : movimientos.map((movement) => {
                       const type = movement.tipoMovimiento as TipoMovimientoStock;
@@ -298,7 +306,7 @@ export function Movimientos() {
                         <TableCell><Badge variant="outline" className={TYPE_META[type]?.tone}>{TYPE_META[type]?.label || type}</Badge><p className="mt-1 max-w-44 text-xs font-medium">{getConceptoLabel(concept)}</p></TableCell>
                         <TableCell className={`text-right font-black ${positive ? "text-emerald-600" : "text-rose-600"}`}>{positive ? "+" : "-"}{Math.abs(movement.cantidad)}</TableCell>
                         <TableCell className="text-right font-semibold">{movement.stockResultante ?? "—"}</TableCell>
-                        <TableCell className="text-right text-sm font-semibold">{movement.importeTotal ? new Intl.NumberFormat("es-AR", { style: "currency", currency: "ARS" }).format(movement.importeTotal) : "—"}</TableCell>
+                        <TableCell className="text-right text-sm font-semibold">{movement.importeTotal ? new Intl.NumberFormat("es-AR", { style: "currency", currency: "ARS" }).format(movement.importeTotal) : COST_IMPACT_CONCEPTS.includes(concept) ? new Intl.NumberFormat("es-AR", { style: "currency", currency: "ARS" }).format(Math.abs(movement.cantidad) * Number(movement.costoUnitario ?? 0)) : "—"}</TableCell>
                         <TableCell><p className="text-xs font-semibold">{movement.referencia || "Sin referencia"}</p><p className="mt-1 max-w-52 truncate text-xs text-muted-foreground">{movement.motivo || "Sin notas"}</p></TableCell>
                       </TableRow>;
                     })}

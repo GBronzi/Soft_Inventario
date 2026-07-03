@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { deleteInventarioSeguro, getCatalogoFilterOptions, getCatalogoProductos } from "@/database/queries";
+import { getCatalogoFilterOptions, getCatalogoProductos } from "@/database/queries";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { TIENDANUBE_SYNCED_EVENT } from "@/hooks/useTiendanubeSync";
 import type { CatalogoFilterOptions, CatalogoItem, EstadoInventario } from "@/types";
@@ -21,6 +21,21 @@ type CatalogoFiltersState = {
   soloConVariantes: boolean;
 };
 
+type ProductoAgrupado = CatalogoItem & {
+  variantesGrupo: CatalogoItem[];
+  tieneBajoStock: boolean;
+};
+
+function getVariantLabel(variante: CatalogoItem) {
+  const values = [variante.variante, variante.capacidadMedida]
+    .map((value) => value?.trim())
+    .filter((value): value is string => Boolean(value));
+  const uniqueValues = values.filter(
+    (value, index) => values.findIndex((candidate) => candidate.toLocaleLowerCase() === value.toLocaleLowerCase()) === index,
+  );
+  return uniqueValues.join(" · ") || "Principal";
+}
+
 
 export function Catalogo() {
   const navigate = useNavigate();
@@ -29,8 +44,6 @@ export function Catalogo() {
   const [productos, setProductos] = useState<CatalogoItem[]>([]);
   const [refreshKey, setRefreshKey] = useState(0);
   const [options, setOptions] = useState<CatalogoFilterOptions>({ categorias: [], marcas: [] });
-  const [status, setStatus] = useState<string | null>(null);
-  const [isDeleting, setIsDeleting] = useState<number | null>(null);
   const [viewType, setViewType] = useState<"grid" | "list">(() => {
     return (localStorage.getItem("catalogo_view_type") as "grid" | "list") || "grid";
   });
@@ -54,6 +67,19 @@ export function Catalogo() {
   const debouncedSearch = useDebouncedValue(searchInput);
 
   const hasActiveFilters = filters.search || filters.categoria || filters.marca || filters.estado !== "TODOS" || filters.soloBajoStock || filters.soloConVariantes;
+
+  const productosAgrupados = useMemo<ProductoAgrupado[]>(() => {
+    const groups = new Map<number, CatalogoItem[]>();
+    productos.forEach((item) => groups.set(item.productoId, [...(groups.get(item.productoId) ?? []), item]));
+    return Array.from(groups.values()).map((variantesGrupo) => {
+      const base = variantesGrupo[0];
+      return {
+        ...base,
+        variantesGrupo,
+        tieneBajoStock: variantesGrupo.some((item) => item.stockActual <= item.stockMinimo),
+      };
+    });
+  }, [productos]);
 
   const currencyFormatter = new Intl.NumberFormat("es-AR", {
     style: "currency",
@@ -103,22 +129,6 @@ export function Catalogo() {
   const handleClearFilters = () => {
     setSearchInput("");
     setSearchParams(new URLSearchParams(), { replace: true });
-  };
-
-  const handleDelete = async (producto: CatalogoItem) => {
-    if (!window.confirm(`¿Eliminar ${producto.nombre} (${producto.variante})?`)) return;
-    
-    setIsDeleting(producto.inventarioId);
-    try {
-      await deleteInventarioSeguro(producto.inventarioId);
-      setProductos(prev => prev.filter(p => p.inventarioId !== producto.inventarioId));
-      setStatus("Producto eliminado correctamente");
-    } catch (e: any) {
-      const msg = e?.message || (typeof e === 'string' ? e : JSON.stringify(e));
-      setStatus(`Error: ${msg}`);
-    } finally {
-      setIsDeleting(null);
-    }
   };
 
   return (
@@ -238,7 +248,7 @@ export function Catalogo() {
         <div className="flex-1 space-y-6">
           <div className="flex items-center justify-between bg-card/30 p-4 rounded-2xl backdrop-blur-sm border border-border/50">
             <h3 className="text-sm font-medium text-muted-foreground">
-              Hemos encontrado <span className="text-foreground font-bold">{productos.length}</span> variantes
+              Hemos encontrado <span className="text-foreground font-bold">{productosAgrupados.length}</span> productos · {productos.length} variantes
             </h3>
             <div className="flex gap-2">
               <Button 
@@ -260,13 +270,7 @@ export function Catalogo() {
             </div>
           </div>
 
-          {status && (
-            <div className={`p-3 rounded-xl border text-xs font-bold text-center animate-in slide-in-from-top-2 ${status.includes("Error") ? "bg-rose-500/10 border-rose-500/50 text-rose-500" : "bg-emerald-500/10 border-emerald-500/50 text-emerald-500"}`}>
-              {status}
-            </div>
-          )}
-
-          {productos.length === 0 ? (
+          {productosAgrupados.length === 0 ? (
             <div className="flex h-80 flex-col items-center justify-center rounded-3xl border-2 border-dashed border-border/50 bg-muted/10">
               <PackageSearch className="size-16 text-muted-foreground/20 mb-4" />
               <p className="text-muted-foreground font-medium">No hay resultados para esta búsqueda</p>
@@ -274,8 +278,8 @@ export function Catalogo() {
             </div>
           ) : viewType === "grid" ? (
             <div className="grid gap-6 sm:grid-cols-2 xl:grid-cols-3">
-              {productos.map((producto) => (
-                <Card key={producto.inventarioId} className="group flex flex-col overflow-hidden rounded-3xl border-none bg-card/40 shadow-lg transition-all hover:shadow-2xl hover:shadow-primary/5 hover:-translate-y-1">
+              {productosAgrupados.map((producto) => (
+                <Card key={producto.productoId} className="group flex flex-col overflow-hidden rounded-3xl border-none bg-card/40 shadow-lg transition-all hover:shadow-2xl hover:shadow-primary/5 hover:-translate-y-1">
                   <div className="relative aspect-[3/3] overflow-hidden bg-muted/30">
                     {(() => {
                       const imgSrc = producto.imagenPathLocal
@@ -304,7 +308,7 @@ export function Catalogo() {
                        <Badge variant={producto.estado === "ACTIVO" ? "default" : "secondary"} className="shadow-lg font-bold border-none px-3">
                         {producto.estado}
                       </Badge>
-                      {producto.stockActual <= producto.stockMinimo && (
+                      {producto.tieneBajoStock && (
                         <Badge variant="destructive" className="animate-pulse shadow-lg font-bold">REPOSICIÓN</Badge>
                       )}
                     </div>
@@ -314,22 +318,24 @@ export function Catalogo() {
                     <div className="space-y-1">
                       <p className="text-[10px] font-black uppercase tracking-[0.2em] text-primary/60">{producto.marca}</p>
                       <CardTitle className="line-clamp-1 group-hover:text-primary transition-colors">{producto.nombre}</CardTitle>
-                      <CardDescription className="line-clamp-1">{producto.variante || "Principal"}</CardDescription>
+                      <CardDescription>{producto.variantesGrupo.length} {producto.variantesGrupo.length === 1 ? "variante" : "variantes"}</CardDescription>
                     </div>
                   </CardHeader>
 
                   <CardContent className="flex-1 space-y-4 flex flex-col justify-end">
-                    <div className="flex items-center justify-between border-t border-border/50 pt-4">
-                      <div className="space-y-0.5">
-                        <p className="text-[10px] font-bold uppercase text-muted-foreground/70">Precio venta</p>
-                        <p className="text-xl font-black text-foreground">{currencyFormatter.format(producto.precioVenta)}</p>
+                    <div className="overflow-hidden rounded-lg border border-border/60 bg-background/40">
+                      <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] gap-3 border-b border-border/60 bg-muted/30 px-3 py-1.5 text-[9px] font-bold uppercase text-muted-foreground">
+                        <span>Variante</span>
+                        <span>Precio</span>
+                        <span className="text-right">Stock</span>
                       </div>
-                      <div className="text-right space-y-0.5">
-                        <p className="text-[10px] font-bold uppercase text-muted-foreground/70">Stock actual</p>
-                        <p className={`text-xl font-black ${producto.stockActual <= producto.stockMinimo ? "text-rose-500" : "text-emerald-500"}`}>
-                          {producto.stockActual} <span className="text-[10px] font-medium opacity-50">u.</span>
-                        </p>
-                      </div>
+                      {producto.variantesGrupo.map((variante) => (
+                        <button key={variante.inventarioId} type="button" onClick={() => navigate(`/producto/${variante.inventarioId}`)} className="grid w-full grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-3 border-b border-border/40 px-3 py-2 text-left text-[11px] transition-colors last:border-b-0 hover:bg-primary/5 hover:text-primary" title={`Abrir ${getVariantLabel(variante)}`}>
+                          <span className="min-w-0 truncate font-bold">{getVariantLabel(variante)}</span>
+                          <span className="font-semibold tabular-nums">{currencyFormatter.format(variante.precioVenta)}</span>
+                          <span className={`min-w-12 text-right font-black tabular-nums ${variante.stockActual <= variante.stockMinimo ? "text-rose-500" : "text-emerald-600"}`}>{variante.stockActual} u.</span>
+                        </button>
+                      ))}
                     </div>
 
                     <div className="grid grid-cols-2 gap-2 mt-2 opacity-0 group-hover:opacity-100 transition-all duration-300 transform translate-y-2 group-hover:translate-y-0">
@@ -348,15 +354,6 @@ export function Catalogo() {
                       >
                         Editar
                       </Button>
-                      <Button 
-                        size="sm" 
-                        variant="ghost" 
-                        disabled={isDeleting === producto.inventarioId}
-                        className="rounded-xl h-9 col-span-2 text-rose-500 hover:bg-rose-500/10 font-bold"
-                        onClick={() => handleDelete(producto)}
-                      >
-                        {isDeleting === producto.inventarioId ? "Eliminando..." : "Eliminar"}
-                      </Button>
                     </div>
                   </CardContent>
                 </Card>
@@ -364,9 +361,9 @@ export function Catalogo() {
             </div>
           ) : (
             <div className="space-y-3">
-              {productos.map((producto) => (
+              {productosAgrupados.map((producto) => (
                 <div 
-                  key={producto.inventarioId} 
+                  key={producto.productoId}
                   className="group flex flex-col md:flex-row items-center gap-4 p-3 bg-card/40 rounded-2xl border border-border/50 hover:bg-card/60 transition-all hover:shadow-lg hover:border-primary/20"
                 >
                   <div className="h-16 w-16 shrink-0 overflow-hidden rounded-xl bg-muted/30">
@@ -389,31 +386,28 @@ export function Catalogo() {
                     )}
                   </div>
 
-                  <div className="flex-1 min-w-0 space-y-1">
+                  <div className="min-w-0 flex-1 space-y-1">
                     <div className="flex items-center gap-2">
                       <p className="text-[9px] font-black uppercase tracking-widest text-primary/60">{producto.marca}</p>
                       <Badge variant={producto.estado === "ACTIVO" ? "default" : "secondary"} className="text-[8px] h-4 px-1.5 font-bold border-none uppercase">
                         {producto.estado}
                       </Badge>
-                      {producto.stockActual <= producto.stockMinimo && (
+                      {producto.tieneBajoStock && (
                         <Badge variant="destructive" className="text-[8px] h-4 px-1.5 font-bold animate-pulse">BAJO STOCK</Badge>
                       )}
                     </div>
                     <h4 className="font-bold text-sm truncate group-hover:text-primary transition-colors">{producto.nombre}</h4>
-                    <p className="text-xs text-muted-foreground truncate">{producto.variante || "Principal"}</p>
+                    <p className="text-xs text-muted-foreground">{producto.variantesGrupo.length} {producto.variantesGrupo.length === 1 ? "variante" : "variantes"}</p>
                   </div>
 
-                  <div className="flex flex-row md:flex-col items-center md:items-end gap-1 md:gap-0 px-4 border-x md:border-x-0 md:border-l border-border/50 min-w-32">
-                    <p className="text-[9px] font-bold uppercase text-muted-foreground/50 md:hidden">Venta:</p>
-                    <p className="font-black text-sm">{currencyFormatter.format(producto.precioVenta)}</p>
-                    <p className="text-[9px] font-medium text-muted-foreground hidden md:block uppercase tracking-tighter">Precio de venta</p>
-                  </div>
-
-                  <div className="flex flex-row md:flex-col items-center md:items-end gap-1 md:gap-0 px-4 min-w-28">
-                    <p className={`font-black text-sm ${producto.stockActual <= producto.stockMinimo ? "text-rose-500" : "text-emerald-500"}`}>
-                      {producto.stockActual} <span className="text-[10px] font-medium opacity-50">u.</span>
-                    </p>
-                    <p className="text-[9px] font-medium text-muted-foreground uppercase tracking-tighter">Stock disponible</p>
+                  <div className="w-full overflow-hidden rounded-lg border border-border/50 md:w-[28rem]">
+                    {producto.variantesGrupo.map((variante) => (
+                      <button key={variante.inventarioId} type="button" onClick={() => navigate(`/producto/${variante.inventarioId}`)} className="grid w-full grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-3 border-b border-border/40 px-3 py-2 text-left text-xs last:border-b-0 hover:bg-primary/5" title="Abrir variante">
+                        <span className="truncate font-bold">{getVariantLabel(variante)}</span>
+                        <span className="font-semibold tabular-nums">{currencyFormatter.format(variante.precioVenta)}</span>
+                        <span className={`min-w-12 text-right font-black tabular-nums ${variante.stockActual <= variante.stockMinimo ? "text-rose-500" : "text-emerald-600"}`}>{variante.stockActual} u.</span>
+                      </button>
+                    ))}
                   </div>
 
                   <div className="flex gap-2 pl-2">
@@ -424,15 +418,6 @@ export function Catalogo() {
                       onClick={() => navigate(`/producto/${producto.inventarioId}`)}
                     >
                       <PackageSearch className="size-4" />
-                    </Button>
-                    <Button 
-                      size="icon" 
-                      variant="ghost" 
-                      className="h-9 w-9 rounded-xl hover:bg-rose-500/10 text-rose-500"
-                      disabled={isDeleting === producto.inventarioId}
-                      onClick={() => handleDelete(producto)}
-                    >
-                      <Boxes className="size-4" />
                     </Button>
                   </div>
                 </div>

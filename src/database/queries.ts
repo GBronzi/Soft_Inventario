@@ -22,6 +22,8 @@ import type {
   MovimientoTemplateDraft,
   ProductoDetalle,
   ProductoDraft,
+  ProductoVarianteResumen,
+  VarianteProductoDraft,
   StockAlert,
   ResumenMensualMovimientos,
 } from "@/types";
@@ -75,7 +77,6 @@ export async function getDashboardOverview(): Promise<DashboardStats> {
     variantesBajoStock,
     movimientosHoy,
     totalInvertido,
-    totalVentasSalidas,
   ] =
     await Promise.all([
       getCount("SELECT COUNT(*) AS total FROM productos"),
@@ -95,12 +96,6 @@ export async function getDashboardOverview(): Promise<DashboardStats> {
       getCount(
         "SELECT COALESCE(SUM(stock_actual * precio_compra), 0) AS total FROM inventario",
       ),
-      getCount(
-        `SELECT COALESCE(SUM(ABS(m.cantidad) * COALESCE(i.precio_venta, 0)), 0) AS total
-         FROM movimientos_stock m
-         INNER JOIN inventario i ON i.id = m.inventario_id
-         WHERE m.concepto = 'VENTA'`,
-      ),
     ]);
 
   return {
@@ -110,7 +105,6 @@ export async function getDashboardOverview(): Promise<DashboardStats> {
     variantesBajoStock,
     movimientosHoy,
     totalInvertido,
-    totalVentasSalidas,
   };
 }
 
@@ -292,6 +286,27 @@ export async function getProductoByInventarioId(inventarioId: number): Promise<P
   );
 
   return rows[0] ?? null;
+}
+
+export async function getVariantesByProductoId(productoId: number): Promise<ProductoVarianteResumen[]> {
+  const db = await getDatabase();
+  return db.select<ProductoVarianteResumen[]>(
+    `SELECT
+        id AS inventarioId,
+        variante,
+        capacidad_medida AS capacidadMedida,
+        sku,
+        codigo_barras AS codigoBarras,
+        COALESCE(precio_compra, 0) AS precioCompra,
+        COALESCE(precio_venta, 0) AS precioVenta,
+        COALESCE(stock_actual, 0) AS stockActual,
+        COALESCE(stock_minimo, 0) AS stockMinimo,
+        estado
+      FROM inventario
+      WHERE producto_id = $1
+      ORDER BY capacidad_medida ASC, variante ASC, id ASC`,
+    [productoId],
+  );
 }
 
 export async function getProductoByCodigoBarras(codigoBarras: string): Promise<ProductoDetalle | null> {
@@ -527,7 +542,12 @@ export async function registrarMovimientoStock(payload: MovimientoStockDraft) {
 
     const stockResultante = Number(inventario.stockActual ?? 0) + delta;
     const precioUnitario = Number(inventario.precioVenta ?? 0);
-    const costoUnitario = Number(inventario.precioCompra ?? 0);
+    const costoUnitario = payload.costoUnitario === undefined
+      ? Number(inventario.precioCompra ?? 0)
+      : Math.max(0, Number(payload.costoUnitario));
+    if (!Number.isFinite(costoUnitario)) {
+      throw new Error("El costo unitario no es válido.");
+    }
     const importeSugerido = precioUnitario * Math.abs(cantidad);
     const importeTotal = concepto === "VENTA" || concepto === "DEVOLUCION_CLIENTE"
       ? Math.max(0, Number(payload.importeTotal ?? importeSugerido))
@@ -605,8 +625,11 @@ export async function getResumenMensualMovimientos(mes: string): Promise<Resumen
       COALESCE(SUM(CASE WHEN concepto = 'CAMBIO_ENTRADA' THEN ABS(cantidad) ELSE 0 END), 0) AS cambiosEntradas,
       COALESCE(SUM(CASE WHEN concepto = 'CAMBIO_SALIDA' THEN ABS(cantidad) ELSE 0 END), 0) AS cambiosSalidas,
       COALESCE(SUM(CASE WHEN concepto = 'CAMBIO_GARANTIA' THEN ABS(cantidad) * costo_unitario ELSE 0 END), 0) AS cambiosGarantiaCosto,
+      COALESCE(SUM(CASE WHEN concepto = 'CAMBIO_GARANTIA' THEN ABS(cantidad) ELSE 0 END), 0) AS cambiosGarantiaUnidades,
       COALESCE(SUM(CASE WHEN concepto IN ('ROTURA', 'FALLA') THEN ABS(cantidad) * costo_unitario ELSE 0 END), 0) AS roturasFallasCosto,
+      COALESCE(SUM(CASE WHEN concepto IN ('ROTURA', 'FALLA') THEN ABS(cantidad) ELSE 0 END), 0) AS roturasFallasUnidades,
       COALESCE(SUM(CASE WHEN concepto = 'VENCIMIENTO' THEN ABS(cantidad) * costo_unitario ELSE 0 END), 0) AS vencimientosCosto,
+      COALESCE(SUM(CASE WHEN concepto = 'VENCIMIENTO' THEN ABS(cantidad) ELSE 0 END), 0) AS vencimientosUnidades,
       COALESCE(SUM(CASE WHEN concepto = 'REGALO_SORTEO' THEN ABS(cantidad) * costo_unitario ELSE 0 END), 0) AS regalosCosto,
       COALESCE(SUM(CASE WHEN concepto = 'PERDIDA_FALTANTE' THEN ABS(cantidad) * costo_unitario ELSE 0 END), 0) AS perdidasCosto,
       COALESCE(SUM(CASE WHEN concepto = 'CORRECCION_STOCK' AND cantidad > 0 THEN cantidad ELSE 0 END), 0) AS ajustesPositivos,
@@ -626,8 +649,11 @@ export async function getResumenMensualMovimientos(mes: string): Promise<Resumen
     cambiosEntradas: Number(row?.cambiosEntradas ?? 0),
     cambiosSalidas: Number(row?.cambiosSalidas ?? 0),
     cambiosGarantiaCosto: Number(row?.cambiosGarantiaCosto ?? 0),
+    cambiosGarantiaUnidades: Number(row?.cambiosGarantiaUnidades ?? 0),
     roturasFallasCosto: Number(row?.roturasFallasCosto ?? 0),
+    roturasFallasUnidades: Number(row?.roturasFallasUnidades ?? 0),
     vencimientosCosto: Number(row?.vencimientosCosto ?? 0),
+    vencimientosUnidades: Number(row?.vencimientosUnidades ?? 0),
     regalosCosto: Number(row?.regalosCosto ?? 0),
     perdidasCosto: Number(row?.perdidasCosto ?? 0),
     ajustesPositivos: Number(row?.ajustesPositivos ?? 0),
@@ -870,12 +896,13 @@ export async function createProducto(payload: ProductoDraft) {
       `INSERT INTO movimientos_stock (
           inventario_id,
           tipo_movimiento,
+          concepto,
           cantidad,
           stock_resultante,
           motivo,
           referencia,
           fecha_movimiento
-        ) VALUES ($1, $2, $3, $4, $5, $6, COALESCE($7, CURRENT_TIMESTAMP))`,
+        ) VALUES ($1, $2, 'ENTRADA_OTRA', $3, $4, $5, $6, COALESCE($7, CURRENT_TIMESTAMP))`,
       [
         inventarioResult.lastInsertId,
         "ENTRADA",
@@ -889,6 +916,75 @@ export async function createProducto(payload: ProductoDraft) {
   }
 
   return Number(productoId);
+}
+
+export async function createVarianteProducto(productoId: number, payload: VarianteProductoDraft): Promise<number> {
+  const db = await getDatabase();
+  const producto = await db.select<{ id: number }[]>("SELECT id FROM productos WHERE id = $1 LIMIT 1", [productoId]);
+  if (!producto[0]) throw new Error("El producto al que se agregará la variante no existe.");
+
+  const result = await db.execute(
+    `INSERT INTO inventario (
+      producto_id, variante, capacidad_medida, codigo_barras, sku,
+      precio_compra, precio_venta, stock_actual, stock_minimo,
+      ubicacion, lote, vencimiento, estado, actualizado_en
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, CURRENT_TIMESTAMP)`,
+    [
+      productoId,
+      normalizeOptionalText(payload.variante),
+      normalizeOptionalText(payload.capacidadMedida),
+      normalizeOptionalText(payload.codigoBarras),
+      normalizeOptionalText(payload.sku),
+      payload.precioCompra ?? 0,
+      payload.precioVenta ?? 0,
+      payload.stockInicial ?? 0,
+      payload.stockMinimo ?? 0,
+      normalizeOptionalText(payload.ubicacion),
+      normalizeOptionalText(payload.lote),
+      normalizeOptionalText(payload.vencimiento),
+      payload.estado ?? "ACTIVO",
+    ],
+  );
+  const inventarioId = Number(result.lastInsertId);
+  if (!inventarioId) throw new Error("No se pudo crear la variante.");
+
+  if ((payload.stockInicial ?? 0) > 0) {
+    await db.execute(
+      `INSERT INTO movimientos_stock (
+        inventario_id, tipo_movimiento, concepto, cantidad, stock_resultante,
+        motivo, referencia, fecha_movimiento
+      ) VALUES ($1, 'ENTRADA', 'ENTRADA_OTRA', $2, $2, 'Carga inicial desde formulario', 'ALTA_INICIAL', COALESCE($3, CURRENT_TIMESTAMP))`,
+      [inventarioId, payload.stockInicial ?? 0, payload.fechaIngreso ? `${payload.fechaIngreso} 00:00:00` : null],
+    );
+  }
+
+  return inventarioId;
+}
+
+export async function createProductoConVariantes(
+  payload: ProductoDraft,
+  variantesAdicionales: VarianteProductoDraft[],
+): Promise<{ productoId: number; inventarioIds: number[] }> {
+  const db = await getDatabase();
+  await db.execute("BEGIN");
+  try {
+    const productoId = await createProducto(payload);
+    const principal = await db.select<{ inventarioId: number }[]>(
+      "SELECT id AS inventarioId FROM inventario WHERE producto_id = $1 ORDER BY id ASC LIMIT 1",
+      [productoId],
+    );
+    if (!principal[0]) throw new Error("No se pudo localizar la variante principal recién creada.");
+
+    const inventarioIds = [principal[0].inventarioId];
+    for (const variante of variantesAdicionales) {
+      inventarioIds.push(await createVarianteProducto(productoId, variante));
+    }
+    await db.execute("COMMIT");
+    return { productoId, inventarioIds };
+  } catch (error) {
+    await db.execute("ROLLBACK");
+    throw error;
+  }
 }
 
 export async function updateEstadoInventario(inventarioId: number, estado: EstadoInventario) {

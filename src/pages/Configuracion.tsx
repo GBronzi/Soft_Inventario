@@ -14,6 +14,7 @@ import {
   KeyRound,
   PackageCheck,
   RefreshCcw,
+  RotateCcw,
   Save,
   ShieldCheck,
   UserRoundCog,
@@ -49,7 +50,7 @@ export function Configuracion() {
   const [recoveryCode, setRecoveryCode] = useState<string | null>(null);
   const [recoveryPassword, setRecoveryPassword] = useState("");
   const [securitySaving, setSecuritySaving] = useState(false);
-  const [appVersion, setAppVersion] = useState("1.0.5");
+  const [appVersion, setAppVersion] = useState("1.0.6");
   const [availableUpdate, setAvailableUpdate] = useState<AvailableUpdate | null>(null);
   const [updateStatus, setUpdateStatus] = useState<string | null>(null);
   const [checkingUpdate, setCheckingUpdate] = useState(false);
@@ -116,6 +117,25 @@ export function Configuracion() {
       setUpdateStatus(`Respaldo creado en: ${path}`);
     } catch (error) {
       setUpdateStatus(`Error al crear respaldo: ${String(error)}`);
+    }
+  }
+
+  async function handleRestoreBackup() {
+    setUpdateStatus(null);
+    try {
+      const selected = await open({
+        multiple: false,
+        filters: [{ name: "Respaldo de inventario", extensions: ["db", "sqlite", "sqlite3"] }],
+      });
+      if (typeof selected !== "string") return;
+      const confirmed = window.confirm(
+        "La aplicación se reiniciará y reemplazará la base actual por este respaldo. Antes se creará una copia automática de seguridad. ¿Desea continuar?",
+      );
+      if (!confirmed) return;
+      setUpdateStatus("Validando respaldo y preparando restauración...");
+      await invoke("restore_database", { sourcePath: selected });
+    } catch (error) {
+      setUpdateStatus(`Error al restaurar respaldo: ${String(error)}`);
     }
   }
 
@@ -411,6 +431,9 @@ export function Configuracion() {
                   </div>
                   <Button variant="secondary" onClick={() => void handleManualBackup()} className="w-full rounded-xl font-bold h-11 bg-white text-primary hover:bg-white/90 shadow-2xl">
                     Crear Backup (.db)
+                  </Button>
+                  <Button variant="outline" onClick={() => void handleRestoreBackup()} className="w-full rounded-xl font-bold h-11 border-white/40 bg-transparent text-white hover:bg-white/10 hover:text-white">
+                    <RotateCcw className="mr-2 size-4" /> Restaurar Backup
                   </Button>
                </div>
             </CardContent>

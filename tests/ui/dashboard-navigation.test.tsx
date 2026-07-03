@@ -113,15 +113,9 @@ describe("Dashboard UI", () => {
     });
   });
 
-  it("navega desde la acción rápida al historial de salidas", async () => {
-    const router = renderDashboard();
-
-    fireEvent.click(screen.getByRole("button", { name: /Historial de ventas/ }));
-
-    await waitFor(() => {
-      expect(router.state.location.pathname).toBe("/movimientos");
-      expect(router.state.location.search).toBe("?tipoMovimiento=SALIDA");
-    });
+  it("no muestra el antiguo KPI de ventas", async () => {
+    renderDashboard();
+    expect(screen.queryByRole("button", { name: /Historial de ventas/ })).toBeNull();
   });
 
   it("navega desde la acción rápida a una salida preconfigurada", async () => {

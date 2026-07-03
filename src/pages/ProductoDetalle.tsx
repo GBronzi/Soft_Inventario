@@ -35,18 +35,28 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { getMovimientosByInventarioId, getProductoByInventarioId, getProductoCategorias } from "@/database/queries";
+import { getMovimientosByInventarioId, getProductoByInventarioId, getProductoCategorias, getVariantesByProductoId } from "@/database/queries";
 import { buildMovimientosRoute, buildRepeatMovimientoRoute, buildVentaRapidaRoute } from "@/lib/movimientos";
-import type { CategoriaRef, MovimientoListado, ProductoDetalle as ProductoDetalleType } from "@/types";
+import type { CategoriaRef, MovimientoListado, ProductoDetalle as ProductoDetalleType, ProductoVarianteResumen } from "@/types";
 
 const KARDEX_PAGE_SIZE = 15;
 const KARDEX_QUERY_LIMIT = KARDEX_PAGE_SIZE + 1;
+
+function getVariantLabel(variante: Pick<ProductoVarianteResumen, "variante" | "capacidadMedida">) {
+  const values = [variante.variante, variante.capacidadMedida]
+    .map((value) => value?.trim())
+    .filter((value): value is string => Boolean(value));
+  return values
+    .filter((value, index) => values.findIndex((candidate) => candidate.toLocaleLowerCase() === value.toLocaleLowerCase()) === index)
+    .join(" · ") || "Principal";
+}
 
 export function ProductoDetalle() {
   const navigate = useNavigate();
   const params = useParams();
   const [detalle, setDetalle] = useState<ProductoDetalleType | null>(null);
   const [categorias, setCategorias] = useState<CategoriaRef[]>([]);
+  const [variantes, setVariantes] = useState<ProductoVarianteResumen[]>([]);
   const [movimientos, setMovimientos] = useState<MovimientoListado[]>([]);
   const [kardexHasMore, setKardexHasMore] = useState(false);
   const [kardexPage, setKardexPage] = useState(1);
@@ -64,6 +74,8 @@ export function ProductoDetalle() {
     async function load() {
       if (!inventarioId) return;
       setLoading(true);
+      setKardexPage(1);
+      setVariantes([]);
       try {
         const [prod, movs] = await Promise.all([
           getProductoByInventarioId(inventarioId),
@@ -73,11 +85,12 @@ export function ProductoDetalle() {
           setDetalle(prod);
           setKardexHasMore(movs.length > KARDEX_PAGE_SIZE);
           setMovimientos(movs.slice(0, KARDEX_PAGE_SIZE));
-          try {
-            setCategorias(await getProductoCategorias(prod.productoId));
-          } catch {
-            setCategorias([]);
-          }
+          const [categoriesResult, variantsResult] = await Promise.allSettled([
+              getProductoCategorias(prod.productoId),
+              getVariantesByProductoId(prod.productoId),
+          ]);
+          setCategorias(categoriesResult.status === "fulfilled" ? categoriesResult.value : []);
+          setVariantes(variantsResult.status === "fulfilled" ? variantsResult.value : []);
         } else {
           setStatus("Variante no encontrada");
         }
@@ -198,6 +211,50 @@ export function ProductoDetalle() {
 
         {/* LADO DERECHO: DETALLES TECNICOS Y KARDEX */}
         <div className="lg:col-span-8 space-y-6">
+          <Card className="border-none shadow-xl bg-card/60 backdrop-blur-md overflow-hidden">
+            <CardHeader className="border-b border-border/50 pb-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <CardTitle className="text-sm font-black uppercase tracking-widest opacity-60 flex items-center gap-2">
+                  <Layers className="size-4" /> Variantes del producto
+                </CardTitle>
+                <Badge variant="secondary">{variantes.length} {variantes.length === 1 ? "variante" : "variantes"}</Badge>
+              </div>
+            </CardHeader>
+            <CardContent className="p-0">
+              <div className="hidden grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_auto_auto_auto] gap-4 border-b border-border/50 bg-muted/20 px-5 py-2 text-[9px] font-bold uppercase text-muted-foreground md:grid">
+                <span>Variante</span><span>SKU / Código</span><span>Precio</span><span>Stock</span><span>Acciones</span>
+              </div>
+              {variantes.map((variante) => {
+                const selected = variante.inventarioId === detalle.inventarioId;
+                const lowStock = variante.stockActual <= variante.stockMinimo;
+                return (
+                  <div key={variante.inventarioId} className={`grid gap-3 border-b border-border/40 px-5 py-4 last:border-b-0 md:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_auto_auto_auto] md:items-center ${selected ? "bg-primary/5 ring-1 ring-inset ring-primary/20" : "hover:bg-muted/20"}`}>
+                    <button type="button" className="min-w-0 text-left" onClick={() => navigate(`/producto/${variante.inventarioId}`)}>
+                      <span className="flex items-center gap-2 font-black">
+                        {getVariantLabel(variante)}
+                        {selected && <Badge className="h-5 border-none text-[9px]">Seleccionada</Badge>}
+                      </span>
+                      <span className="mt-1 block text-[10px] uppercase text-muted-foreground">{variante.estado}</span>
+                    </button>
+                    <div className="min-w-0 text-xs">
+                      <p className="truncate font-semibold">{variante.sku || "Sin SKU"}</p>
+                      <p className="truncate text-[10px] text-muted-foreground">{variante.codigoBarras || "Sin código de barras"}</p>
+                    </div>
+                    <p className="text-sm font-black tabular-nums">{currencyFormatter.format(variante.precioVenta)}</p>
+                    <div className="text-right md:min-w-16">
+                      <p className={`text-sm font-black tabular-nums ${lowStock ? "text-rose-500" : "text-emerald-600"}`}>{variante.stockActual} u.</p>
+                      <p className="text-[9px] text-muted-foreground">Mín. {variante.stockMinimo}</p>
+                    </div>
+                    <div className="flex gap-1 md:justify-end">
+                      <Button type="button" variant="ghost" size="icon" className="size-8" title="Editar variante" aria-label={`Editar ${getVariantLabel(variante)}`} onClick={() => navigate(`/producto/${variante.inventarioId}/editar`)}><Edit3 className="size-3.5" /></Button>
+                      <Button type="button" variant="ghost" size="icon" className="size-8" title="Venta rápida" aria-label={`Vender ${getVariantLabel(variante)}`} onClick={() => navigate(buildVentaRapidaRoute(variante.inventarioId))}><Zap className="size-3.5" /></Button>
+                    </div>
+                  </div>
+                );
+              })}
+            </CardContent>
+          </Card>
+
           <Card className="border-none shadow-xl bg-card/40 backdrop-blur-md">
             <CardHeader className="pb-2">
                <CardTitle className="text-sm font-black uppercase tracking-widest opacity-40 flex items-center gap-2">
