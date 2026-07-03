@@ -1,5 +1,4 @@
 import { useSyncExternalStore } from "react";
-import { Link } from "react-router-dom";
 import { getActiveNavigationItem } from "@/components/layout/navigation";
 import { ThemeToggle } from "@/components/shared/ThemeToggle";
 import { LogOut } from "lucide-react";
@@ -43,18 +42,18 @@ export function Topbar() {
           </button>
           <div className="h-6 w-px bg-border mx-1" />
           <div className="flex gap-2">
-            <Link
-              to="/onboarding"
+            <a
+              href="#/onboarding"
               className="rounded-lg border border-border px-3 py-2 text-sm font-medium text-foreground transition-all hover:bg-muted hover:shadow-sm active:scale-95"
             >
               Ayuda
-            </Link>
-            <Link
-              to="/producto/nuevo"
+            </a>
+            <a
+              href="#/producto/nuevo"
               className="rounded-lg bg-primary px-3 py-2 text-sm font-medium text-primary-foreground shadow-md transition-all hover:opacity-90 hover:shadow-primary/20 active:scale-95"
             >
               Nuevo producto
-            </Link>
+            </a>
           </div>
         </div>
       </div>

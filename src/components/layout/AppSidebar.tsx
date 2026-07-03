@@ -1,7 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { getVersion } from "@tauri-apps/api/app";
 import { convertFileSrc } from "@tauri-apps/api/core";
-import { NavLink } from "react-router-dom";
 import { Info, Instagram, Mail, User } from "lucide-react";
 
 import { navigationItems } from "@/components/layout/navigation";
@@ -10,7 +9,15 @@ import type { ConfiguracionEmpresa } from "@/types";
 
 export function AppSidebar() {
   const [config, setConfig] = useState<ConfiguracionEmpresa | null>(null);
-  const [appVersion, setAppVersion] = useState("1.0.6");
+  const [appVersion, setAppVersion] = useState("1.0.7");
+  const pathname = useSyncExternalStore(
+    (onStoreChange) => {
+      window.addEventListener("hashchange", onStoreChange);
+      return () => window.removeEventListener("hashchange", onStoreChange);
+    },
+    () => window.location.hash.replace(/^#/, "").split("?")[0] || "/dashboard",
+    () => "/dashboard",
+  );
 
   useEffect(() => {
     void getConfiguracionEmpresa().then(setConfig);
@@ -49,17 +56,15 @@ export function AppSidebar() {
           const Icon = item.icon;
 
           return (
-            <NavLink
+            <a
               key={item.to}
-              to={item.to}
-              className={({ isActive }) =>
-                [
+              href={`#${item.to}`}
+              className={[
                   "group flex items-center gap-4 rounded-2xl px-4 py-3.5 transition-all duration-300 relative overflow-hidden",
-                  isActive
+                  item.matches(pathname)
                     ? "bg-primary text-primary-foreground shadow-lg shadow-primary/20"
                     : "text-muted-foreground hover:bg-muted/50 hover:text-foreground",
-                ].join(" ")
-              }
+                ].join(" ")}
             >
               <div className="relative z-10 size-5 flex items-center justify-center shrink-0">
                  <Icon className="size-full transition-transform group-hover:scale-110" />
@@ -73,7 +78,7 @@ export function AppSidebar() {
               
               {/* Subtle hover effect light */}
               <div className="absolute inset-0 bg-white/5 opacity-0 group-hover:opacity-100 transition-opacity" />
-            </NavLink>
+            </a>
           );
         })}
 
