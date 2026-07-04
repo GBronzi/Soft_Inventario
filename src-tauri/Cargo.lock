@@ -5075,7 +5075,7 @@ dependencies = [
 
 [[package]]
 name = "tauri-app"
-version = "1.0.9"
+version = "1.0.10"
 dependencies = [
  "argon2",
  "base64 0.22.1",

@@ -232,6 +232,9 @@ async function initializeSchema(db: Database) {
     await migrateLegacySchema(db);
   }
 
+  // En una instalación nueva las tablas deben existir antes de aplicar
+  // migraciones de columnas o normalizaciones de datos.
+  await executeStatements(db, getSchemaStatements());
   await addMissingColumns(db);
   await db.execute(
     `UPDATE movimientos_stock
@@ -250,7 +253,6 @@ async function initializeSchema(db: Database) {
          importe_total = CASE WHEN concepto = 'VENTA' THEN ABS(cantidad) * COALESCE((SELECT precio_venta FROM inventario WHERE inventario.id = movimientos_stock.inventario_id), 0) ELSE 0 END
      WHERE precio_unitario = 0 AND costo_unitario = 0`,
   );
-  await executeStatements(db, getSchemaStatements());
   await ensureEmpresaConfigRow(db);
   await db.execute(`PRAGMA user_version = ${SCHEMA_VERSION}`);
 }
