@@ -102,6 +102,15 @@ afterEach(() => {
 });
 
 describe("Dashboard UI", () => {
+  it("muestra la licencia aunque falle otra consulta del panel", async () => {
+    mockGetDashboardOverview.mockRejectedValueOnce(new Error("Base no disponible"));
+
+    renderDashboard();
+
+    await waitFor(() => expect(screen.getByText("Licencia válida")).toBeTruthy());
+    expect(screen.getByText("Demo")).toBeTruthy();
+  });
+
   it("navega desde el KPI de bajo stock al catálogo filtrado", async () => {
     const router = renderDashboard();
 

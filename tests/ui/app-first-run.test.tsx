@@ -16,7 +16,7 @@ vi.mock("@/database/queries", () => ({
   MONTHLY_SALES_UPDATED_EVENT: "soft_inventario_ventas_actualizadas",
 }));
 vi.mock("@tauri-apps/api/app", () => ({ getVersion: vi.fn().mockResolvedValue("1.0.5") }));
-vi.mock("@tauri-apps/api/core", () => ({ convertFileSrc: (path: string) => path, invoke: vi.fn() }));
+vi.mock("@tauri-apps/api/core", () => ({ convertFileSrc: (path: string) => path, invoke: vi.fn().mockResolvedValue({ isValid: true, holder: "Demo", expiresAt: null, mode: "development", message: "Licencia válida" }) }));
 
 import App from "@/App";
 

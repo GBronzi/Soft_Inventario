@@ -81,11 +81,10 @@ export function Dashboard() {
   useEffect(() => {
     async function load() {
       const currentMonth = new Date().toISOString().slice(0, 7);
-      const [dashboard, lowStock, recentMovements, licenseStatus, movementSummary] = await Promise.all([
+      const [dashboard, lowStock, recentMovements, movementSummary] = await Promise.all([
         getDashboardOverview(),
         getLowStockAlerts(),
         getRecentMovimientos(5),
-        invoke<LicenseStatus>("get_license_status"),
         getResumenMensualMovimientos(currentMonth),
       ]);
 
@@ -113,12 +112,26 @@ export function Dashboard() {
       setStats(dashboard);
       setAlerts(lowStock);
       setMovimientos(recentMovements);
-      setLicense(licenseStatus);
       setMonthlySummary(currentSummary);
     }
 
-    void load();
+    void load().catch(console.error);
   }, [refreshKey]);
+
+  useEffect(() => {
+    void invoke<LicenseStatus>("get_license_status")
+      .then(setLicense)
+      .catch((error) => {
+        console.error(error);
+        setLicense({
+          isValid: false,
+          holder: null,
+          expiresAt: null,
+          mode: "error",
+          message: "No se pudo consultar el estado local de la licencia.",
+        });
+      });
+  }, []);
 
   useEffect(() => {
     const onSynced = () => {
