@@ -50,7 +50,7 @@ export function Configuracion() {
   const [recoveryCode, setRecoveryCode] = useState<string | null>(null);
   const [recoveryPassword, setRecoveryPassword] = useState("");
   const [securitySaving, setSecuritySaving] = useState(false);
-  const [appVersion, setAppVersion] = useState("1.0.8");
+  const [appVersion, setAppVersion] = useState("1.0.9");
   const [availableUpdate, setAvailableUpdate] = useState<AvailableUpdate | null>(null);
   const [updateStatus, setUpdateStatus] = useState<string | null>(null);
   const [checkingUpdate, setCheckingUpdate] = useState(false);
@@ -58,15 +58,13 @@ export function Configuracion() {
 
   const loadData = async () => {
     try {
-      const [databaseOk, licenseStatus, empresaConfig, accessStatus] = await Promise.all([
+      const [databaseOk, empresaConfig, accessStatus] = await Promise.all([
         pingDatabase(),
-        invoke<LicenseStatus>("get_license_status"),
         getConfiguracionEmpresa(),
         invoke<AuthStatus>("get_auth_status"),
       ]);
 
       setDbReady(databaseOk);
-      setLicense(licenseStatus);
       setAuthStatus(accessStatus);
       setNewUsername(accessStatus.username ?? "");
       setForm({
@@ -81,6 +79,18 @@ export function Configuracion() {
 
   useEffect(() => {
     void loadData();
+    void invoke<LicenseStatus>("get_license_status")
+      .then(setLicense)
+      .catch((error) => {
+        console.error(error);
+        setLicense({
+          isValid: false,
+          holder: null,
+          expiresAt: null,
+          mode: "error",
+          message: "No se pudo consultar el estado local de la licencia.",
+        });
+      });
     void getVersion().then(setAppVersion).catch(() => undefined);
   }, []);
 
