@@ -16,6 +16,7 @@ import { Onboarding } from "@/pages/Onboarding";
 import { ProductoDetalle } from "@/pages/ProductoDetalle";
 import { ProductoForm } from "@/pages/ProductoForm";
 import { Tiendanube } from "@/pages/Tiendanube";
+import { Ventas } from "@/pages/Ventas";
 
 const router = createHashRouter([
   {
@@ -30,6 +31,7 @@ const router = createHashRouter([
       { path: "/producto/:inventarioId/editar", element: <ProductoForm /> },
       { path: "/producto/:inventarioId", element: <ProductoDetalle /> },
       { path: "/movimientos", element: <Movimientos /> },
+      { path: "/ventas", element: <Ventas /> },
       { path: "/gastos", element: <Gastos /> },
       { path: "/contactos", element: <Contactos /> },
       { path: "/escaner", element: <Navigate replace to="/contactos" /> },

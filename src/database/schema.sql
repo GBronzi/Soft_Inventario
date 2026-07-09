@@ -72,6 +72,28 @@ CREATE TABLE IF NOT EXISTS movimientos_stock (
     FOREIGN KEY (inventario_id) REFERENCES inventario (id) ON DELETE CASCADE
 );
 
+
+CREATE TABLE IF NOT EXISTS ventas (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    numero TEXT NOT NULL UNIQUE,
+    medio_pago TEXT NOT NULL,
+    total REAL NOT NULL DEFAULT 0,
+    estado TEXT NOT NULL DEFAULT 'CONFIRMADA',
+    nota TEXT,
+    creada_en DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS venta_detalle (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    venta_id INTEGER NOT NULL,
+    inventario_id INTEGER NOT NULL,
+    cantidad INTEGER NOT NULL,
+    precio_unitario REAL NOT NULL DEFAULT 0,
+    subtotal REAL NOT NULL DEFAULT 0,
+    FOREIGN KEY (venta_id) REFERENCES ventas (id) ON DELETE CASCADE,
+    FOREIGN KEY (inventario_id) REFERENCES inventario (id) ON DELETE RESTRICT
+);
+
 CREATE TABLE IF NOT EXISTS plantillas_movimientos (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     inventario_id INTEGER NOT NULL,
@@ -129,6 +151,10 @@ CREATE INDEX IF NOT EXISTS idx_producto_categorias_categoria ON producto_categor
 CREATE INDEX IF NOT EXISTS idx_movimientos_inventario_fecha ON movimientos_stock (inventario_id, fecha_movimiento DESC);
 CREATE INDEX IF NOT EXISTS idx_movimientos_concepto_fecha ON movimientos_stock (concepto, fecha_movimiento DESC);
 CREATE INDEX IF NOT EXISTS idx_movimientos_operacion ON movimientos_stock (operacion_id) WHERE operacion_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_ventas_fecha ON ventas (creada_en DESC);
+CREATE INDEX IF NOT EXISTS idx_ventas_medio_pago_fecha ON ventas (medio_pago, creada_en DESC);
+CREATE INDEX IF NOT EXISTS idx_venta_detalle_venta ON venta_detalle (venta_id);
+CREATE INDEX IF NOT EXISTS idx_venta_detalle_inventario ON venta_detalle (inventario_id);
 CREATE INDEX IF NOT EXISTS idx_plantillas_movimientos_inventario ON plantillas_movimientos (inventario_id, actualizado_en DESC);
 CREATE INDEX IF NOT EXISTS idx_contactos_nombre ON contactos (nombre, apellidos);
 CREATE INDEX IF NOT EXISTS idx_contactos_email ON contactos (email);

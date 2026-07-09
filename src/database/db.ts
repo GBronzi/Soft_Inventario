@@ -4,7 +4,7 @@ import { appDataDir, join } from "@tauri-apps/api/path";
 import schemaSql from "@/database/schema.sql?raw";
 
 const DATABASE_URL = "sqlite:inventario_v4.db";
-const SCHEMA_VERSION = 5;
+const SCHEMA_VERSION = 6;
 
 let databasePromise: Promise<Database> | null = null;
 

@@ -1,17 +1,19 @@
 import { invoke } from "@tauri-apps/api/core";
-import { Boxes, ClipboardList, History, PackageSearch, TriangleAlert, Wallet } from "lucide-react";
+import { Boxes, ClipboardList, History, PackageSearch, ShoppingCart, TriangleAlert, Wallet } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { AlertaStockList } from "@/components/shared/AlertaStockList";
 import { EscanerBluetoothPanel } from "@/components/shared/EscanerBluetoothPanel";
 import { ResumenCard } from "@/components/shared/ResumenCard";
+import { VentasDiaCard } from "@/components/shared/VentasDiaCard";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { getDashboardOverview, getLowStockAlerts, getRecentMovimientos, getResumenMensualMovimientos, MONTHLY_SALES_UPDATED_EVENT } from "@/database/queries";
 import { TIENDANUBE_SYNCED_EVENT } from "@/hooks/useTiendanubeSync";
+import { getResumenVentasDia } from "@/database/ventas";
 import { buildMovimientosRoute, buildRepeatMovimientoRoute, buildVentaRapidaRoute } from "@/lib/movimientos";
-import type { DashboardStats, GastoRegistro, LicenseStatus, MovimientoListado, ResumenMensualMovimientos, StockAlert } from "@/types";
+import type { DashboardStats, GastoRegistro, LicenseStatus, MovimientoListado, ResumenMensualMovimientos, ResumenVentasDia, StockAlert } from "@/types";
 
 const GASTOS_STORAGE_KEY = "soft_inventario_gastos";
 
@@ -69,6 +71,8 @@ export function Dashboard() {
   const [movimientos, setMovimientos] = useState<MovimientoListado[]>([]);
   const [license, setLicense] = useState<LicenseStatus | null>(null);
   const [monthlySummary, setMonthlySummary] = useState<MonthlyDashboardSummary | null>(null);
+  const [todaySales, setTodaySales] = useState<ResumenVentasDia | null>(null);
+  const [showTodaySales, setShowTodaySales] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
   const todayDateParam = getTodayDateParam();
 
@@ -77,6 +81,10 @@ export function Dashboard() {
     currency: "ARS",
     maximumFractionDigits: 2,
   });
+
+  useEffect(() => {
+    void getResumenVentasDia(todayDateParam).then(setTodaySales).catch(console.error);
+  }, [refreshKey, todayDateParam]);
 
   useEffect(() => {
     async function load() {
@@ -165,11 +173,19 @@ export function Dashboard() {
         </CardHeader>
         <CardContent className="flex flex-wrap gap-3 pb-6">
           <Button className="h-11 px-6 rounded-xl shadow-lg shadow-primary/20" onClick={() => navigate("/producto/nuevo")} type="button">Nuevo producto</Button>
+          <Button className="h-11 px-6 rounded-xl bg-emerald-600 text-white hover:bg-emerald-700" onClick={() => navigate("/ventas")} type="button"><ShoppingCart className="mr-2 size-4" />Nueva venta</Button>
           <Button variant="secondary" className="h-11 px-6 rounded-xl" onClick={() => navigate(buildMovimientosRoute())} type="button">Registrar movimiento</Button>
           <Button variant="destructive" className="h-11 px-6 rounded-xl shadow-lg shadow-destructive/20" onClick={() => navigate(buildMovimientosRoute({ presetTipoMovimiento: "SALIDA" }))} type="button">Registrar salida</Button>
           <Button variant="outline" className="h-11 px-6 rounded-xl border-dashed border-2" onClick={() => navigate(buildVentaRapidaRoute())} type="button">Venta rápida local</Button>
         </CardContent>
       </Card>
+
+      <VentasDiaCard
+        summary={todaySales}
+        open={showTodaySales}
+        onToggle={() => setShowTodaySales((current) => !current)}
+        formatCurrency={(value) => currencyFormatter.format(value)}
+      />
 
       <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
         <AlertaStockList

@@ -87,6 +87,53 @@ export interface CatalogoItem {
   tnCategoryIds: number[];
 }
 
+
+export type MedioPago = "EFECTIVO" | "TRANSFERENCIA" | "TARJETA" | "OTRO";
+
+export interface VentaItemDraft {
+  inventarioId: number;
+  cantidad: number;
+  precioUnitario: number;
+}
+
+export interface VentaDraft {
+  medioPago: MedioPago;
+  nota?: string;
+  items: VentaItemDraft[];
+}
+
+export interface VentaRegistrada {
+  id: number;
+  numero: string;
+  medioPago: MedioPago;
+  total: number;
+  creadaEn: string;
+  inventarioIds: number[];
+}
+
+export interface VentaDetalleListado {
+  ventaId: number;
+  numero: string;
+  fecha: string;
+  producto: string;
+  variante: string | null;
+  cantidad: number;
+  precioUnitario: number;
+  subtotal: number;
+  medioPago: MedioPago;
+}
+
+export interface ResumenVentasDia {
+  total: number;
+  unidades: number;
+  operaciones: number;
+  efectivo: number;
+  transferencia: number;
+  tarjeta: number;
+  otro: number;
+  detalles: VentaDetalleListado[];
+}
+
 export interface ProductoDetalle extends CatalogoItem {
   categorias?: CategoriaRef[];
 }

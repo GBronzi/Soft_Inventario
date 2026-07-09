@@ -7,6 +7,7 @@ import {
   ContactRound,
   Settings,
   Store,
+  ShoppingCart,
   type LucideIcon,
 } from "lucide-react";
 
@@ -39,6 +40,13 @@ export const navigationItems: NavigationItem[] = [
     description: "Alta inicial de artículos.",
     icon: PackagePlus,
     matches: (pathname) => pathname.startsWith("/producto"),
+  },
+  {
+    to: "/ventas",
+    label: "Nueva venta",
+    description: "Caja y ventas múltiples.",
+    icon: ShoppingCart,
+    matches: (pathname) => pathname.startsWith("/ventas"),
   },
   {
     to: "/movimientos",

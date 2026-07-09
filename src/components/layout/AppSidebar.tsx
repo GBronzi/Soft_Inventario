@@ -9,7 +9,7 @@ import type { ConfiguracionEmpresa } from "@/types";
 
 export function AppSidebar() {
   const [config, setConfig] = useState<ConfiguracionEmpresa | null>(null);
-  const [appVersion, setAppVersion] = useState("1.0.10");
+  const [appVersion, setAppVersion] = useState("1.0.11");
   const pathname = useSyncExternalStore(
     (onStoreChange) => {
       window.addEventListener("hashchange", onStoreChange);
@@ -29,15 +29,18 @@ export function AppSidebar() {
       {/* Brand Header */}
       <div className="py-10 px-6 flex flex-col items-center justify-center text-center space-y-4 border-b border-border/30">
         {config?.logoPathLocal ? (
-          <div className="p-4 rounded-[2.5rem] bg-background/80 shadow-2xl border border-border/50 group transition-all hover:scale-105">
+          <div className="group relative size-[150px] overflow-hidden rounded-[2rem] border border-white/30 bg-white/10 shadow-[0_18px_45px_-20px_rgba(0,0,0,0.65),inset_0_1px_1px_rgba(255,255,255,0.55),inset_0_-1px_1px_rgba(0,0,0,0.16)] ring-1 ring-white/10 backdrop-blur-2xl transition-all hover:scale-105">
             <img
               src={convertFileSrc(config.logoPathLocal)}
               alt="Logo"
-              className="h-20 w-20 object-contain"
+              className="h-full w-full rounded-[2rem] object-contain"
             />
+            <div aria-hidden="true" className="pointer-events-none absolute inset-0 rounded-[2rem] bg-gradient-to-br from-white/35 via-white/5 to-black/10 opacity-70 mix-blend-screen" />
+            <div aria-hidden="true" className="pointer-events-none absolute -left-5 -top-8 h-20 w-36 rotate-[-12deg] rounded-full bg-white/35 blur-2xl transition-transform duration-500 group-hover:translate-x-4" />
+            <div aria-hidden="true" className="pointer-events-none absolute inset-x-5 bottom-2 h-4 rounded-full bg-white/10 blur-md" />
           </div>
         ) : (
-          <div className="size-20 rounded-[2.5rem] bg-primary/10 flex items-center justify-center border border-primary/20 shadow-inner">
+          <div className="size-[150px] rounded-[2rem] bg-primary/10 flex items-center justify-center border border-primary/20 shadow-inner">
              <span className="text-3xl font-black text-primary">S</span>
           </div>
         )}

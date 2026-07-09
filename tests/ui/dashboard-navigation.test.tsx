@@ -25,6 +25,10 @@ vi.mock("@tauri-apps/api/core", () => ({
   invoke: mockInvoke,
 }));
 
+vi.mock("@/database/ventas", () => ({
+  getResumenVentasDia: vi.fn().mockResolvedValue({ total: 0, unidades: 0, operaciones: 0, efectivo: 0, transferencia: 0, tarjeta: 0, otro: 0, detalles: [] }),
+}));
+
 import { Dashboard } from "@/pages/Dashboard";
 
 function renderDashboard() {
