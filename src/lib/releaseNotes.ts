@@ -4,6 +4,32 @@ export interface ReleaseNoteSection {
 }
 
 const RELEASE_NOTES: Record<string, ReleaseNoteSection[]> = {
+  "1.0.12": [
+    {
+      title: "Actualizaciones",
+      items: [
+        "Nueva ventana flotante que informa la version disponible antes de instalar.",
+        "Detalle de mejoras, parches y cambios importantes dentro del programa.",
+        "Boton para instalar la actualizacion y opcion para recordar mas tarde.",
+        "Barra de progreso durante la descarga e instalacion.",
+      ],
+    },
+    {
+      title: "Kardex y Tiendanube",
+      items: [
+        "Cuando Tiendanube cambia el stock local, ahora queda registrado como Ajuste por Tiendanube.",
+        "El historial muestra la diferencia de stock con signo positivo o negativo y referencia de origen.",
+        "Los movimientos se ordenan por fecha e id para evitar lecturas confusas en operaciones cercanas.",
+        "La columna de stock ahora se muestra como Stock despues para explicar mejor el resultado del movimiento.",
+      ],
+    },
+    {
+      title: "Validacion",
+      items: [
+        "Se agregaron pruebas para las notas de actualizacion y para el ajuste de stock importado desde Tiendanube.",
+      ],
+    },
+  ],
   "1.0.11": [
     {
       title: "Ventas y caja",

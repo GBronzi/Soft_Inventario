@@ -50,7 +50,7 @@ export function Configuracion() {
   const [recoveryCode, setRecoveryCode] = useState<string | null>(null);
   const [recoveryPassword, setRecoveryPassword] = useState("");
   const [securitySaving, setSecuritySaving] = useState(false);
-  const [appVersion, setAppVersion] = useState("1.0.11");
+  const [appVersion, setAppVersion] = useState("1.0.12");
   const [availableUpdate, setAvailableUpdate] = useState<AvailableUpdate | null>(null);
   const [updateStatus, setUpdateStatus] = useState<string | null>(null);
   const [checkingUpdate, setCheckingUpdate] = useState(false);
