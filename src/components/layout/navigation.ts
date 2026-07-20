@@ -71,8 +71,8 @@ export const navigationItems: NavigationItem[] = [
   },
   {
     to: "/tiendanube",
-    label: "Tiendanube",
-    description: "Integración externa futura.",
+    label: "Sincronización",
+    description: "Tiendanube y stock local.",
     icon: Store,
     matches: (pathname) => pathname.startsWith("/tiendanube"),
   },

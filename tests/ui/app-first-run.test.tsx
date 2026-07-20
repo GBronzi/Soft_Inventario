@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/components/auth/ParticleField", () => ({ ParticleField: () => <div /> }));
 vi.mock("@/components/shared/UpdateNotifier", () => ({ UpdateNotifier: () => null }));
-vi.mock("@/hooks/useTiendanubeSync", () => ({ useTiendanubeSync: () => undefined, TIENDANUBE_SYNCED_EVENT: "tiendanube-synced" }));
+vi.mock("@/hooks/useTiendanubeSync", () => ({ useTiendanubeSync: () => undefined, TIENDANUBE_SYNCED_EVENT: "tiendanube-synced", TIENDANUBE_PENDING_CHANGES_EVENT: "tiendanube-pending", TIENDANUBE_CONNECTION_EVENT: "tiendanube-connection" }));
 vi.mock("@/database/queries", () => ({
   getConfiguracionEmpresa: vi.fn().mockResolvedValue({ nombreEmpresa: null, logoPathLocal: null, moneda: "ARS" }),
   getDashboardOverview: vi.fn().mockResolvedValue({ totalProductos: 0, totalVariantes: 0, stockTotal: 0, variantesBajoStock: 0, movimientosHoy: 0, totalInvertido: 0 }),

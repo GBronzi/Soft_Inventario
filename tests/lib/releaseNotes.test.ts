@@ -15,4 +15,11 @@ describe("release notes", () => {
     expect(notes.length).toBeGreaterThan(0);
     expect(notes[0].items[0]).toContain("Nueva ventana de venta");
   });
+
+  it("incluye notas locales para la sincronizacion de Tiendanube", () => {
+    const notes = getReleaseNotesForVersion("v1.1.0");
+    expect(notes.length).toBeGreaterThan(0);
+    expect(notes[0].items.join(" ")).toContain("Sincronizacion");
+    expect(notes[1].items.join(" ")).toContain("token");
+  });
 });

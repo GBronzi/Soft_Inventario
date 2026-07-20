@@ -14,8 +14,18 @@
     {
       "identifier": "http:default",
       "allow": [
-        { "url": "https://api.tiendanube.com/v1/*" },
-        { "url": "https://api.tiendanube.com/v1/*?*" }
+        {
+          "url": "https://api.tiendanube.com/v1/*"
+        },
+        {
+          "url": "https://api.tiendanube.com/v1/*?*"
+        },
+        {
+          "url": "https://vercel-bridge-5fpy4bubs-mauricios-projects-45a56444.vercel.app/api/*"
+        },
+        {
+          "url": "https://vercel-bridge-5fpy4bubs-mauricios-projects-45a56444.vercel.app/api/*?*"
+        }
       ]
     },
     "deep-link:default",

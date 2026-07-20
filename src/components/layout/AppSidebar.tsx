@@ -25,11 +25,11 @@ export function AppSidebar() {
   }, []);
 
   return (
-    <aside className="hidden w-72 h-screen sticky top-0 border-r border-border/50 bg-card/40 backdrop-blur-xl lg:flex flex-col animate-in fade-in slide-in-from-left duration-700">
+    <aside className="app-sidebar hidden w-72 h-screen sticky top-0 border-r border-border/50 bg-card/40 backdrop-blur-xl lg:flex flex-col animate-in fade-in slide-in-from-left duration-700">
       {/* Brand Header */}
-      <div className="py-10 px-6 flex flex-col items-center justify-center text-center space-y-4 border-b border-border/30">
+      <div className="app-sidebar-brand py-10 px-6 flex flex-col items-center justify-center text-center space-y-4 border-b border-border/30">
         {config?.logoPathLocal ? (
-          <div className="group relative size-[150px] overflow-hidden rounded-[2rem] border border-white/30 bg-white/10 shadow-[0_18px_45px_-20px_rgba(0,0,0,0.65),inset_0_1px_1px_rgba(255,255,255,0.55),inset_0_-1px_1px_rgba(0,0,0,0.16)] ring-1 ring-white/10 backdrop-blur-2xl transition-all hover:scale-105">
+          <div className="app-sidebar-logo group relative size-[150px] overflow-hidden rounded-[2rem] border border-white/30 bg-white/10 shadow-[0_18px_45px_-20px_rgba(0,0,0,0.65),inset_0_1px_1px_rgba(255,255,255,0.55),inset_0_-1px_1px_rgba(0,0,0,0.16)] ring-1 ring-white/10 backdrop-blur-2xl transition-all hover:scale-105">
             <img
               src={convertFileSrc(config.logoPathLocal)}
               alt="Logo"
@@ -40,7 +40,7 @@ export function AppSidebar() {
             <div aria-hidden="true" className="pointer-events-none absolute inset-x-5 bottom-2 h-4 rounded-full bg-white/10 blur-md" />
           </div>
         ) : (
-          <div className="size-[150px] rounded-[2rem] bg-primary/10 flex items-center justify-center border border-primary/20 shadow-inner">
+          <div className="app-sidebar-logo size-[150px] rounded-[2rem] bg-primary/10 flex items-center justify-center border border-primary/20 shadow-inner">
              <span className="text-3xl font-black text-primary">S</span>
           </div>
         )}
@@ -54,7 +54,7 @@ export function AppSidebar() {
       </div>
 
       {/* Navigation */}
-      <div className="flex-1 overflow-y-auto custom-scrollbar p-4 space-y-1.5 pt-6">
+      <div className="app-sidebar-nav flex-1 overflow-y-auto custom-scrollbar p-4 space-y-1.5 pt-6">
         {navigationItems.map((item) => {
           const Icon = item.icon;
 
@@ -86,7 +86,7 @@ export function AppSidebar() {
         })}
 
         {/* Info & Contact Section */}
-        <div className="mx-2 mt-8 p-4 rounded-[2rem] bg-gradient-to-br from-primary/10 to-transparent border border-primary/10 space-y-4">
+        <div className="app-sidebar-info mx-2 mt-8 p-4 rounded-[2rem] bg-gradient-to-br from-primary/10 to-transparent border border-primary/10 space-y-4">
           <div className="space-y-2">
             <div className="flex items-center gap-2 text-primary">
               <Info className="size-4" />
@@ -139,7 +139,7 @@ export function AppSidebar() {
       </div>
 
       {/* Footer Info */}
-      <div className="p-6 border-t border-border/30">
+      <div className="app-sidebar-footer p-6 border-t border-border/30">
          <div className="p-4 rounded-2xl bg-muted/20 border border-border/50 text-center">
             <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Versión {appVersion} - Premium</p>
             <p className="text-[8px] text-muted-foreground mt-1 opacity-50">Base Offline-First | RSA SECURE</p>

@@ -35,9 +35,23 @@ jobs:
           tagName: ${{ github.ref_name }}
           releaseName: "Inventario App ${{ github.ref_name }}"
           releaseBody: |
-            ## Cambios incluidos
-            - Consulta esta release para revisar las mejoras, correcciones y parches incluidos.
-            - La aplicacion mostrara estos detalles en una ventana flotante antes de instalar la actualizacion.
+            ## Sincronizacion Tiendanube
+            - Nueva ventana Sincronizacion para revisar cambios antes de aplicarlos al stock local.
+            - Detecta productos nuevos, variantes nuevas, ventas de Tiendanube, stock, precio, datos y visibilidad.
+            - Bridge de webhooks en Vercel para recibir avisos de ventas, productos y modificaciones desde Tiendanube.
+            - Los avisos del bridge se verifican contra la API antes de mostrarse para reducir falsos positivos.
+            - La deteccion automatica solo avisa; no modifica el inventario sin confirmacion del usuario.
+
+            ## Conexion y seguridad
+            - Validacion real del token contra la API de Tiendanube para evitar estados conectados falsos.
+            - Aviso de revinculacion solo cuando Tiendanube rechaza la autorizacion.
+            - Reintentos para fallos temporales de internet antes de mostrar alerta.
+            - Aviso superior sin repetir el mismo conjunto de cambios pendientes.
+            - Boton Reparar avisos automaticos para registrar nuevamente los webhooks si hace falta.
+
+            ## Importante
+            - Esta version agrega permiso write_orders y bridge_token. Desvincula y vuelve a vincular Tiendanube una vez para autorizarlo.
+            - El bridge requiere TIENDANUBE_CLIENT_SECRET, KV_REST_API_URL y KV_REST_API_TOKEN configurados en Vercel.
             - Antes de instalar se crea un respaldo automatico de la base de datos local.
           releaseDraft: true
           prerelease: false

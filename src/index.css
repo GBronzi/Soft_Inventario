@@ -140,3 +140,96 @@
     @apply font-sans;
   }
 }
+@layer components {
+  @media (max-width: 1366px), (max-height: 800px) {
+    .app-sidebar {
+      width: 15.5rem;
+    }
+
+    .app-sidebar-brand {
+      padding: 1.25rem 1rem;
+      gap: 0.75rem;
+    }
+
+    .app-sidebar-logo {
+      width: 6.25rem;
+      height: 6.25rem;
+      border-radius: 1.25rem;
+    }
+
+    .app-sidebar-logo img,
+    .app-sidebar-logo [aria-hidden="true"] {
+      border-radius: 1.25rem;
+    }
+
+    .app-sidebar-nav {
+      padding: 0.75rem;
+      padding-top: 1rem;
+    }
+
+    .app-sidebar-nav a {
+      gap: 0.75rem;
+      border-radius: 0.9rem;
+      padding: 0.65rem 0.75rem;
+    }
+
+    .app-sidebar-info {
+      margin-top: 1rem;
+      padding: 0.75rem;
+      border-radius: 1rem;
+    }
+
+    .app-sidebar-footer {
+      padding: 0.75rem;
+    }
+
+    .app-topbar {
+      padding: 0.75rem 1rem;
+    }
+
+    .app-topbar h2 {
+      font-size: 1rem;
+      line-height: 1.35;
+    }
+
+    .app-main {
+      padding: 1rem;
+    }
+
+    .app-page {
+      max-width: none;
+      gap: 1rem;
+    }
+  }
+
+  @media (max-height: 720px) and (min-width: 1024px) {
+    .app-sidebar-info {
+      display: none;
+    }
+
+    .app-sidebar-brand {
+      padding-top: 0.85rem;
+      padding-bottom: 0.85rem;
+    }
+
+    .app-sidebar-logo {
+      width: 5rem;
+      height: 5rem;
+    }
+
+    .app-sidebar-footer > div {
+      padding: 0.5rem;
+      border-radius: 0.75rem;
+    }
+  }
+
+  @media (max-width: 1100px) {
+    .app-main {
+      padding: 0.75rem;
+    }
+
+    .app-topbar-actions {
+      gap: 0.5rem;
+    }
+  }
+}

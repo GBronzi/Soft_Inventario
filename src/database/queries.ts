@@ -1354,6 +1354,66 @@ export async function getTnUpdatedAt(tnProductId: number): Promise<string | null
   return rows[0]?.tnUpdatedAt ?? null;
 }
 
+export async function aplicarStockDesdeTiendanube(payload: {
+  inventarioId: number;
+  tnProductId: number;
+  tnVariantId: number;
+  stock: number;
+  precioVenta?: number;
+}): Promise<void> {
+  const db = await getDatabase();
+  const rows = await db.select<Array<{ stockActual: number; precioCompra: number | null; precioVenta: number | null }>>(
+    "SELECT COALESCE(stock_actual, 0) AS stockActual, precio_compra AS precioCompra, precio_venta AS precioVenta FROM inventario WHERE id = $1 LIMIT 1",
+    [payload.inventarioId],
+  );
+  const current = rows[0];
+  if (!current) throw new Error("No se encontro el inventario local para aplicar el stock de Tiendanube.");
+
+  const previousStock = Number(current.stockActual ?? 0);
+  const nextStock = Number(payload.stock ?? 0);
+  const stockDelta = nextStock - previousStock;
+  const nextPrice = typeof payload.precioVenta === "number" ? payload.precioVenta : Number(current.precioVenta ?? 0);
+  const syncReference = `TN-P${payload.tnProductId}-V${payload.tnVariantId}`;
+
+  await db.execute(
+    `UPDATE inventario
+       SET stock_actual = $1, precio_venta = $2, actualizado_en = CURRENT_TIMESTAMP
+       WHERE id = $3`,
+    [nextStock, nextPrice, payload.inventarioId],
+  );
+
+  if (stockDelta !== 0) {
+    await db.execute(
+      `INSERT INTO movimientos_stock (
+        inventario_id, tipo_movimiento, concepto, cantidad, stock_resultante,
+        motivo, referencia, precio_unitario, costo_unitario, importe_total, operacion_id
+      ) VALUES ($1, 'AJUSTE', 'SINCRONIZACION_TN', $2, $3, $4, $5, $6, $7, 0, $5)`,
+      [
+        payload.inventarioId,
+        stockDelta,
+        nextStock,
+        `Ajuste por sincronizacion Tiendanube (${previousStock} -> ${nextStock})`,
+        syncReference,
+        nextPrice,
+        Number(current.precioCompra ?? 0),
+      ],
+    );
+  }
+}
+
+export async function aplicarPrecioDesdeTiendanube(payload: {
+  inventarioId: number;
+  precioVenta: number;
+}): Promise<void> {
+  const db = await getDatabase();
+  await db.execute(
+    `UPDATE inventario
+       SET precio_venta = $1, actualizado_en = CURRENT_TIMESTAMP
+       WHERE id = $2`,
+    [payload.precioVenta, payload.inventarioId],
+  );
+}
+
 export async function upsertProductoDesdeTiendanube(p: ProductoUpsert): Promise<void> {
   const db = await getDatabase();
   const existing = await db.select<{ id: number }[]>(

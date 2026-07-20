@@ -31,7 +31,7 @@ vi.mock("@/database/queries", () => ({
   notifyMonthlySalesUpdate: mocks.notifyMonthlySalesUpdate,
 }));
 vi.mock("@/api/tiendanube", () => ({ pushInventarioIdATiendanube: mocks.pushInventarioIdATiendanube }));
-vi.mock("@/hooks/useTiendanubeSync", () => ({ TIENDANUBE_SYNCED_EVENT: "tiendanube-synced" }));
+vi.mock("@/hooks/useTiendanubeSync", () => ({ TIENDANUBE_SYNCED_EVENT: "tiendanube-synced", TIENDANUBE_PENDING_CHANGES_EVENT: "tiendanube-pending", TIENDANUBE_CONNECTION_EVENT: "tiendanube-connection" }));
 vi.mock("@tauri-apps/api/core", () => ({ convertFileSrc: (path: string) => path }));
 
 import { Catalogo } from "@/pages/Catalogo";

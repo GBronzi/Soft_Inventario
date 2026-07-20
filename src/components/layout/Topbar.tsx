@@ -24,7 +24,7 @@ export function Topbar() {
   const { logout } = useAuth();
 
   return (
-    <header className="border-b border-border bg-background/80 px-5 py-4 backdrop-blur-md sticky top-0 z-50">
+    <header className="app-topbar border-b border-border bg-background/80 px-5 py-4 backdrop-blur-md sticky top-0 z-50">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <p className="text-[10px] font-bold uppercase tracking-[0.25em] text-muted-foreground/80">
@@ -35,7 +35,7 @@ export function Topbar() {
           </h2>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="app-topbar-actions flex flex-wrap items-center gap-3">
           <ThemeToggle />
           <button type="button" onClick={logout} aria-label="Cerrar sesión" title="Cerrar sesión" className="inline-flex size-9 items-center justify-center rounded-lg border border-border text-muted-foreground transition-colors hover:bg-muted hover:text-foreground">
             <LogOut className="size-4" />

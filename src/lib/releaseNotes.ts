@@ -4,6 +4,37 @@ export interface ReleaseNoteSection {
 }
 
 const RELEASE_NOTES: Record<string, ReleaseNoteSection[]> = {
+  "1.1.0": [
+    {
+      title: "Sincronizacion Tiendanube",
+      items: [
+        "Nueva ventana Sincronizacion para revisar cambios antes de aplicarlos al stock local.",
+        "Deteccion de productos nuevos, variantes nuevas, diferencias de stock, precio, datos y visibilidad.",
+        "Lectura de ventas recientes de Tiendanube para identificar bajas de stock como Venta Tiendanube cuando hay una orden asociada.",
+        "Aplicacion seleccionada: el cliente decide que cambios tomar desde Tiendanube.",
+        "Bridge de webhooks: Tiendanube puede avisar ventas, productos y modificaciones mientras el programa esta abierto.",
+        "Los eventos del bridge se verifican contra la API antes de mostrar cambios para reducir falsos positivos.",
+      ],
+    },
+    {
+      title: "Conexion y avisos",
+      items: [
+        "Validacion real del token contra la API de Tiendanube para evitar estado conectado falso.",
+        "Aviso superior cuando hay cambios pendientes, sin repetir el mismo aviso si el operador lo cierra.",
+        "Aviso de revinculacion solo cuando Tiendanube rechaza la autorizacion; los fallos temporales de internet se reintentan antes de alertar.",
+        "La deteccion automatica no modifica stock por detras: solo avisa y dirige a Sincronizacion.",
+        "La deteccion automatica ahora compara el catalogo completo para detectar cambios manuales de stock aunque Tiendanube no envie webhook de producto.",
+        "Boton Reparar avisos automaticos para registrar nuevamente los webhooks si la tienda fue revinculada o cambio la autorizacion.",
+      ],
+    },
+    {
+      title: "Permisos",
+      items: [
+        "Se agrega permiso write_orders para leer ventas y registrar avisos de pedidos de Tiendanube. Las tiendas vinculadas con versiones anteriores deben desvincular y volver a vincular una vez.",
+        "El bridge en Vercel requiere TIENDANUBE_CLIENT_SECRET, KV_REST_API_URL y KV_REST_API_TOKEN configurados para guardar eventos pendientes.",
+      ],
+    },
+  ],
   "1.0.12": [
     {
       title: "Actualizaciones",
