@@ -194,7 +194,8 @@ export type MovimientoConcepto =
   | "DEVOLUCION_PROVEEDOR"
   | "PERDIDA_FALTANTE"
   | "SALIDA_OTRA"
-  | "CORRECCION_STOCK";
+  | "CORRECCION_STOCK"
+  | "SINCRONIZACION_TN";
 
 export interface MovimientosFilters {
   inventarioId?: number;

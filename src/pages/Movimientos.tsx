@@ -294,7 +294,7 @@ export function Movimientos() {
               </div>
               <div className="overflow-x-auto">
                 <Table>
-                  <TableHeader><TableRow><TableHead className="pl-4">Fecha</TableHead><TableHead>Producto</TableHead><TableHead>Operación</TableHead><TableHead className="text-right">Cantidad</TableHead><TableHead className="text-right">Stock</TableHead><TableHead className="text-right">Importe / costo</TableHead><TableHead>Referencia / notas</TableHead></TableRow></TableHeader>
+                  <TableHeader><TableRow><TableHead className="pl-4">Fecha</TableHead><TableHead>Producto</TableHead><TableHead>Operación</TableHead><TableHead className="text-right">Cantidad</TableHead><TableHead className="text-right">Stock después</TableHead><TableHead className="text-right">Importe / costo</TableHead><TableHead>Referencia / notas</TableHead></TableRow></TableHeader>
                   <TableBody>
                     {movimientos.length === 0 ? <TableRow><TableCell colSpan={7} className="h-48 text-center text-muted-foreground">No hay movimientos para los filtros seleccionados.</TableCell></TableRow> : movimientos.map((movement) => {
                       const type = movement.tipoMovimiento as TipoMovimientoStock;

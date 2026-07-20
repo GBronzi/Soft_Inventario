@@ -19,7 +19,10 @@ export const CONCEPTOS_POR_TIPO: Record<TipoMovimientoStock, Array<{ value: Movi
     { value: "PERDIDA_FALTANTE", label: "Pérdida / faltante" },
     { value: "SALIDA_OTRA", label: "Otra salida" },
   ],
-  AJUSTE: [{ value: "CORRECCION_STOCK", label: "Corrección por conteo físico" }],
+  AJUSTE: [
+    { value: "CORRECCION_STOCK", label: "Corrección por conteo físico" },
+    { value: "SINCRONIZACION_TN", label: "Ajuste por Tiendanube" },
+  ],
 };
 
 export function getConceptoLabel(concepto: MovimientoConcepto) {

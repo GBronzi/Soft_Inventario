@@ -377,7 +377,7 @@ export function ProductoDetalle() {
                     <TableRow className="border-border/50 hover:bg-transparent">
                       <TableHead className="pl-6 text-[10px] font-bold uppercase tracking-tighter">Tipo</TableHead>
                       <TableHead className="text-[10px] font-bold uppercase tracking-tighter">Cant.</TableHead>
-                      <TableHead className="text-[10px] font-bold uppercase tracking-tighter">Stock Final</TableHead>
+                      <TableHead className="text-[10px] font-bold uppercase tracking-tighter">Stock después</TableHead>
                       <TableHead className="text-[10px] font-bold uppercase tracking-tighter">Motivo / Ref.</TableHead>
                       <TableHead className="text-[10px] font-bold uppercase tracking-tighter">Fecha</TableHead>
                       <TableHead></TableHead>
@@ -396,8 +396,8 @@ export function ProductoDetalle() {
                                 {m.tipoMovimiento}
                               </Badge>
                            </TableCell>
-                           <TableCell className={`font-black text-sm ${m.tipoMovimiento === 'ENTRADA' ? 'text-emerald-500' : m.tipoMovimiento === 'SALIDA' ? 'text-rose-500' : 'text-primary'}`}>
-                              {m.tipoMovimiento === 'ENTRADA' ? '+' : m.tipoMovimiento === 'SALIDA' ? '-' : ''}{m.cantidad}
+                           <TableCell className={`font-black text-sm ${m.tipoMovimiento === 'ENTRADA' || (m.tipoMovimiento === 'AJUSTE' && m.cantidad > 0) ? 'text-emerald-500' : m.tipoMovimiento === 'SALIDA' || (m.tipoMovimiento === 'AJUSTE' && m.cantidad < 0) ? 'text-rose-500' : 'text-primary'}`}>
+                              {m.tipoMovimiento === 'ENTRADA' || (m.tipoMovimiento === 'AJUSTE' && m.cantidad > 0) ? '+' : m.tipoMovimiento === 'SALIDA' || (m.tipoMovimiento === 'AJUSTE' && m.cantidad < 0) ? '-' : ''}{Math.abs(m.cantidad)}
                            </TableCell>
                            <TableCell className="font-medium">{m.stockResultante}</TableCell>
                            <TableCell>

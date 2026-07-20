@@ -24,6 +24,7 @@ import {
   updateEstadoInventario,
   updateContacto,
   updateProducto,
+  upsertProductoDesdeTiendanube,
 } from "@/database/queries";
 
 vi.mock("@/database/db", () => ({
@@ -184,6 +185,45 @@ describe("queries de inventario", () => {
     ).rejects.toThrow("La salida o ajuste de 2 dejaría el stock en negativo");
 
     expect(mockDb.execute).not.toHaveBeenCalled();
+  });
+  it("registra un ajuste cuando Tiendanube cambia el stock de una variante existente", async () => {
+    mockDb.select
+      .mockResolvedValueOnce([{ id: 15 }])
+      .mockResolvedValueOnce([{ id: 7, stockActual: 1, precioCompra: 40 }]);
+    mockDb.execute.mockResolvedValue(undefined);
+
+    await upsertProductoDesdeTiendanube({
+      tnProductId: 100,
+      nombre: "Perfume TN",
+      descripcion: null,
+      marca: null,
+      categoriaNombre: null,
+      categoriaLocalIds: [],
+      imagenUrl: null,
+      seoTitulo: null,
+      seoDescripcion: null,
+      tags: null,
+      publicado: true,
+      tnUpdatedAt: "2026-07-20T10:00:00Z",
+      variantes: [{
+        tnVariantId: 200,
+        variante: "100 ml",
+        capacidadMedida: "100 ml",
+        sku: "SKU-TN",
+        codigoBarras: "7790000000000",
+        precioVenta: 85_000,
+        stock: 5,
+      }],
+    });
+
+    expect(mockDb.execute).toHaveBeenCalledWith(
+      expect.stringContaining("UPDATE inventario"),
+      ["100 ml", "100 ml", "SKU-TN", "7790000000000", 85_000, 5, 7],
+    );
+    expect(mockDb.execute).toHaveBeenCalledWith(
+      expect.stringContaining("SINCRONIZACION_TN"),
+      [7, 4, 5, "Ajuste automatico por sincronizacion Tiendanube (1 -> 5)", "TN-P100-V200", 85_000, 40],
+    );
   });
 
   it("actualiza producto y variante dentro de una transacción", async () => {

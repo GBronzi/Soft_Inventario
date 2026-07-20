@@ -34,7 +34,11 @@ jobs:
         with:
           tagName: ${{ github.ref_name }}
           releaseName: "Inventario App ${{ github.ref_name }}"
-          releaseBody: "Consulta las mejoras y correcciones incluidas en esta versión."
+          releaseBody: |
+            ## Cambios incluidos
+            - Consulta esta release para revisar las mejoras, correcciones y parches incluidos.
+            - La aplicacion mostrara estos detalles en una ventana flotante antes de instalar la actualizacion.
+            - Antes de instalar se crea un respaldo automatico de la base de datos local.
           releaseDraft: true
           prerelease: false
           uploadUpdaterJson: true

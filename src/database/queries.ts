@@ -49,7 +49,7 @@ interface InventarioStockRow {
 const CONCEPTOS_VALIDOS: Record<string, MovimientoConcepto[]> = {
   ENTRADA: ["COMPRA_REPOSICION", "DEVOLUCION_CLIENTE", "CAMBIO_ENTRADA", "ENTRADA_OTRA"],
   SALIDA: ["VENTA", "ROTURA", "FALLA", "VENCIMIENTO", "REGALO_SORTEO", "CAMBIO_SALIDA", "CAMBIO_GARANTIA", "DEVOLUCION_PROVEEDOR", "PERDIDA_FALTANTE", "SALIDA_OTRA"],
-  AJUSTE: ["CORRECCION_STOCK"],
+  AJUSTE: ["CORRECCION_STOCK", "SINCRONIZACION_TN"],
 };
 
 const MONTHLY_SALES_UPDATED_EVENT = "soft_inventario_ventas_actualizadas";
@@ -417,7 +417,7 @@ export async function getMovimientos(filters: MovimientosFilters = {}): Promise<
       INNER JOIN inventario i ON i.id = m.inventario_id
       INNER JOIN productos p ON p.id = i.producto_id
       ${whereSql}
-      ORDER BY m.fecha_movimiento DESC
+      ORDER BY m.fecha_movimiento DESC, m.id DESC
       ${paginationSql}`,
     bindValues,
   );
@@ -632,8 +632,8 @@ export async function getResumenMensualMovimientos(mes: string): Promise<Resumen
       COALESCE(SUM(CASE WHEN concepto = 'VENCIMIENTO' THEN ABS(cantidad) ELSE 0 END), 0) AS vencimientosUnidades,
       COALESCE(SUM(CASE WHEN concepto = 'REGALO_SORTEO' THEN ABS(cantidad) * costo_unitario ELSE 0 END), 0) AS regalosCosto,
       COALESCE(SUM(CASE WHEN concepto = 'PERDIDA_FALTANTE' THEN ABS(cantidad) * costo_unitario ELSE 0 END), 0) AS perdidasCosto,
-      COALESCE(SUM(CASE WHEN concepto = 'CORRECCION_STOCK' AND cantidad > 0 THEN cantidad ELSE 0 END), 0) AS ajustesPositivos,
-      COALESCE(SUM(CASE WHEN concepto = 'CORRECCION_STOCK' AND cantidad < 0 THEN ABS(cantidad) ELSE 0 END), 0) AS ajustesNegativos
+      COALESCE(SUM(CASE WHEN concepto IN ('CORRECCION_STOCK', 'SINCRONIZACION_TN') AND cantidad > 0 THEN cantidad ELSE 0 END), 0) AS ajustesPositivos,
+      COALESCE(SUM(CASE WHEN concepto IN ('CORRECCION_STOCK', 'SINCRONIZACION_TN') AND cantidad < 0 THEN ABS(cantidad) ELSE 0 END), 0) AS ajustesNegativos
      FROM movimientos_stock
      WHERE strftime('%Y-%m', fecha_movimiento, 'localtime') = $1`,
     [mes],
@@ -1398,18 +1398,41 @@ export async function upsertProductoDesdeTiendanube(p: ProductoUpsert): Promise<
   }
 
   for (const v of p.variantes) {
-    const ev = await db.select<{ id: number }[]>(
-      "SELECT id FROM inventario WHERE tn_variant_id = $1 LIMIT 1",
+    const ev = await db.select<Array<{ id: number; stockActual: number; precioCompra: number | null }>>(
+      "SELECT id, COALESCE(stock_actual, 0) AS stockActual, precio_compra AS precioCompra FROM inventario WHERE tn_variant_id = $1 LIMIT 1",
       [v.tnVariantId],
     );
     if (ev[0]) {
+      const previousStock = Number(ev[0].stockActual ?? 0);
+      const nextStock = Number(v.stock ?? 0);
+      const stockDelta = nextStock - previousStock;
+      const syncReference = `TN-P${p.tnProductId}-V${v.tnVariantId}`;
+
       await db.execute(
         `UPDATE inventario
            SET variante = $1, capacidad_medida = $2, sku = $3, codigo_barras = $4,
                precio_venta = $5, stock_actual = $6, actualizado_en = CURRENT_TIMESTAMP
            WHERE id = $7`,
-        [v.variante, v.capacidadMedida, v.sku, v.codigoBarras, v.precioVenta, v.stock, ev[0].id],
+        [v.variante, v.capacidadMedida, v.sku, v.codigoBarras, v.precioVenta, nextStock, ev[0].id],
       );
+
+      if (stockDelta !== 0) {
+        await db.execute(
+          `INSERT INTO movimientos_stock (
+            inventario_id, tipo_movimiento, concepto, cantidad, stock_resultante,
+            motivo, referencia, precio_unitario, costo_unitario, importe_total, operacion_id
+          ) VALUES ($1, 'AJUSTE', 'SINCRONIZACION_TN', $2, $3, $4, $5, $6, $7, 0, $5)`,
+          [
+            ev[0].id,
+            stockDelta,
+            nextStock,
+            `Ajuste automatico por sincronizacion Tiendanube (${previousStock} -> ${nextStock})`,
+            syncReference,
+            v.precioVenta,
+            Number(ev[0].precioCompra ?? 0),
+          ],
+        );
+      }
     } else {
       await db.execute(
         `INSERT INTO inventario (
