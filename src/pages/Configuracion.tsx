@@ -10,6 +10,7 @@ import {
   Globe,
   Lock,
   HardDrive,
+  Monitor,
   Image as ImageIcon,
   KeyRound,
   PackageCheck,
@@ -26,6 +27,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { createPreUpdateBackup, DATABASE_URL, pingDatabase } from "@/database/db";
 import { checkForUpdate, type AvailableUpdate } from "@/lib/updater";
+import { UI_SCALE_OPTIONS, useTheme, type UiScale } from "@/components/shared/ThemeProvider";
 import { getConfiguracionEmpresa, saveConfiguracionEmpresa } from "@/database/queries";
 import type { AuthStatus, ConfiguracionEmpresaDraft, LicenseStatus } from "@/types";
 
@@ -36,6 +38,8 @@ const initialForm: ConfiguracionEmpresaDraft = {
 };
 
 export function Configuracion() {
+  const { uiScale, setUiScale } = useTheme();
+  const selectedScale = UI_SCALE_OPTIONS.find((option) => option.id === uiScale) ?? UI_SCALE_OPTIONS[1];
   const [dbReady, setDbReady] = useState(false);
   const [license, setLicense] = useState<LicenseStatus | null>(null);
   const [form, setForm] = useState<ConfiguracionEmpresaDraft>(initialForm);
@@ -362,6 +366,45 @@ export function Configuracion() {
 
         {/* Sidebar: Estado e Infraestructura */}
         <div className="lg:col-span-12 xl:col-span-4 space-y-6">
+          <Card className="border-none shadow-xl bg-card/60 backdrop-blur-md">
+            <CardHeader className="pb-3">
+              <CardTitle className="flex items-center gap-2 text-sm font-black uppercase tracking-widest opacity-60"><Monitor className="size-4" /> Apariencia y resolución</CardTitle>
+              <CardDescription>Ajusta texto, botones y espacios según la pantalla del cliente.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <label className="space-y-2 text-sm font-semibold">
+                <span>Tipo de pantalla</span>
+                <select
+                  className="h-11 w-full rounded-xl border border-border/50 bg-background/50 px-3 py-2 text-sm font-bold outline-none focus:ring-2 focus:ring-primary/20"
+                  value={uiScale}
+                  onChange={(event) => setUiScale(event.target.value as UiScale)}
+                >
+                  {UI_SCALE_OPTIONS.map((option) => (
+                    <option key={option.id} value={option.id}>{option.label}</option>
+                  ))}
+                </select>
+              </label>
+              <div className="rounded-2xl border border-border/50 bg-background/40 p-4">
+                <p className="text-xs font-black uppercase tracking-widest text-muted-foreground">{selectedScale.label}</p>
+                <p className="mt-1 text-sm text-muted-foreground">{selectedScale.description}</p>
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                {UI_SCALE_OPTIONS.map((option) => (
+                  <Button
+                    key={option.id}
+                    type="button"
+                    variant={uiScale === option.id ? "default" : "outline"}
+                    size="sm"
+                    className="h-auto min-h-10 rounded-xl px-2 py-2 text-[11px] font-black"
+                    onClick={() => setUiScale(option.id)}
+                  >
+                    {option.label}
+                  </Button>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+
           <Card className="border-none shadow-xl bg-card/60 backdrop-blur-md">
             <CardHeader className="pb-3">
               <CardTitle className="flex items-center gap-2 text-sm font-black uppercase tracking-widest opacity-60"><PackageCheck className="size-4" /> Actualizaciones</CardTitle>

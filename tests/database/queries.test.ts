@@ -249,7 +249,7 @@ describe("queries de inventario", () => {
 
     expect(mockDb.execute).toHaveBeenNthCalledWith(
       1,
-      expect.stringContaining("UPDATE productos"),
+      expect.stringContaining("imagen_url = COALESCE($7, imagen_url)"),
       expect.arrayContaining(["Perfume Editado", 15]),
     );
     expect(mockDb.execute).toHaveBeenNthCalledWith(

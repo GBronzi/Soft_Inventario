@@ -4,7 +4,23 @@ export interface ReleaseNoteSection {
 }
 
 const RELEASE_NOTES: Record<string, ReleaseNoteSection[]> = {
-  "1.1.0": [
+  "1.1.1": [
+    {
+      title: "Sincronizacion Tiendanube",
+      items: [
+        "Los cambios hechos desde el programa hacia Tiendanube se tratan como salida automatica y no requieren aprobacion manual.",
+        "Se preserva la imagen remota de Tiendanube al editar productos desde el programa.",
+        "El programa actualiza el puente local con la imagen remota devuelta por Tiendanube cuando sincroniza un producto.",
+      ],
+    },
+    {
+      title: "Apariencia",
+      items: [
+        "Nueva opcion Apariencia y resolucion en Configuracion para ajustar texto, botones y espacios segun la pantalla del cliente.",
+        "Se agregan modos Pantalla chica, Estandar y Pantalla grande con preferencia guardada en esta computadora.",
+      ],
+    },
+  ],  "1.1.0": [
     {
       title: "Sincronizacion Tiendanube",
       items: [

@@ -22,6 +22,7 @@ const initialForm = {
   sku: "",
   codigoBarras: "",
   imagenPathLocal: "",
+  imagenUrl: "",
   descripcion: "",
   notas: "",
   seoTitulo: "",
@@ -133,6 +134,7 @@ export function ProductoForm() {
             sku: detalle.sku ?? "",
             codigoBarras: detalle.codigoBarras ?? "",
             imagenPathLocal: detalle.imagenPathLocal ?? "",
+            imagenUrl: detalle.imagenUrl ?? "",
             descripcion: detalle.descripcion ?? "",
             notas: detalle.notas ?? "",
             seoTitulo: detalle.seoTitulo ?? "",
@@ -254,6 +256,11 @@ export function ProductoForm() {
                     <Button type="button" variant="destructive" size="icon" className="absolute top-2 right-2 rounded-full size-8 opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => setForm({...form, imagenPathLocal: ""})}>
                       <X className="size-4" />
                     </Button>
+                  </>
+                ) : form.imagenUrl ? (
+                  <>
+                    <img src={form.imagenUrl} alt="Imagen de Tiendanube" className="h-full w-full object-cover transition-transform group-hover:scale-105" />
+                    <span className="absolute left-3 top-3 rounded-full bg-background/85 px-2 py-1 text-[10px] font-black uppercase text-foreground shadow-sm">Tiendanube</span>
                   </>
                 ) : (
                   <div className="flex flex-col items-center gap-2 text-muted-foreground/40">

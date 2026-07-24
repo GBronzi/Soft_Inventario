@@ -1,11 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { mockAplicarPrecioDesdeTiendanube, mockAplicarStockDesdeTiendanube, mockGetCatalogoProductos, mockGetCategoriasArbol, mockFetch, mockUpsertCategorias } = vi.hoisted(() => ({
+const { mockAplicarPrecioDesdeTiendanube, mockAplicarStockDesdeTiendanube, mockGetCatalogoProductos, mockGetCategoriasArbol, mockFetch, mockSetTnUpdatedAt, mockUpsertCategorias } = vi.hoisted(() => ({
   mockAplicarPrecioDesdeTiendanube: vi.fn(),
   mockAplicarStockDesdeTiendanube: vi.fn(),
   mockGetCatalogoProductos: vi.fn(),
   mockGetCategoriasArbol: vi.fn(),
   mockFetch: vi.fn(),
+  mockSetTnUpdatedAt: vi.fn(),
   mockUpsertCategorias: vi.fn(),
 }));
 
@@ -18,12 +19,12 @@ vi.mock("@/database/queries", () => ({
   aplicarStockDesdeTiendanube: mockAplicarStockDesdeTiendanube,
   getCatalogoProductos: mockGetCatalogoProductos,
   getCategoriasArbol: mockGetCategoriasArbol,
-  setTnUpdatedAt: vi.fn(),
+  setTnUpdatedAt: mockSetTnUpdatedAt,
   upsertCategorias: mockUpsertCategorias,
   upsertProductoDesdeTiendanube: vi.fn(),
 }));
 
-import { buildTiendanubeProductPayload, buildTiendanubeVariantPayload, buildTiendanubeSyncFeedbackMessage, resolveTiendanubeCategoryIds, resolveTiendanubeProductTarget, revisarCambiosTiendanube, runIncrementalSync, validateTiendanubeConnection } from "@/api/tiendanube";
+import { buildTiendanubeProductPayload, buildTiendanubeVariantPayload, buildTiendanubeSyncFeedbackMessage, pushProductoATiendanube, resolveTiendanubeCategoryIds, resolveTiendanubeProductTarget, revisarCambiosTiendanube, runIncrementalSync, validateTiendanubeConnection } from "@/api/tiendanube";
 
 const storage = new Map<string, string>();
 vi.stubGlobal("localStorage", {
@@ -87,6 +88,63 @@ describe("buildTiendanubeSyncFeedbackMessage", () => {
   });
 });
 
+
+describe("pushProductoATiendanube", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    mockFetch.mockReset();
+    mockGetCatalogoProductos.mockReset();
+    mockSetTnUpdatedAt.mockReset();
+  });
+
+  it("sube cambios locales automaticamente y conserva el puente de imagen remota", async () => {
+    localStorage.setItem("tiendanube_credentials", JSON.stringify({ accessToken: "token", userId: "123" }));
+    mockFetch
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        statusText: "OK",
+        json: async () => ({ id: 10, updated_at: "2026-07-24T10:00:00Z", images: [{ src: "https://cdn.tn/imagen.jpg" }] }),
+        headers: { get: () => null },
+      })
+      .mockResolvedValueOnce({ ok: true, status: 200, statusText: "OK", json: async () => ({ id: 20 }) });
+
+    await expect(pushProductoATiendanube({
+      inventarioId: 7,
+      productoId: 1,
+      nombre: "Perfume",
+      descripcion: "Editado local",
+      categoria: null,
+      marca: null,
+      notas: null,
+      imagenPathLocal: null,
+      imagenUrl: "https://cdn.tn/imagen-vieja.jpg",
+      seoTitulo: null,
+      seoDescripcion: null,
+      tags: null,
+      publicado: 1,
+      tnProductId: 10,
+      tnVariantId: 20,
+      variante: "100 ml",
+      capacidadMedida: "100 ml",
+      sku: "SKU-1",
+      codigoBarras: null,
+      stockActual: 5,
+      stockMinimo: 0,
+      precioCompra: 0,
+      precioVenta: 100,
+      ubicacion: null,
+      lote: null,
+      vencimiento: null,
+      estado: "ACTIVO",
+      tnCategoryIds: [],
+    })).resolves.toEqual({ categoryAssigned: false });
+
+    expect(mockSetTnUpdatedAt).toHaveBeenCalledWith(10, "2026-07-24T10:00:00Z", "https://cdn.tn/imagen.jpg");
+    expect(localStorage.getItem("tiendanube_sync_since")).toBeTruthy();
+    expect(localStorage.getItem("tiendanube_auto_check_since")).toBeTruthy();
+  });
+});
 describe("resolveTiendanubeProductTarget", () => {
   beforeEach(() => {
     mockFetch.mockReset();

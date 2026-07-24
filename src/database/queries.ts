@@ -755,7 +755,7 @@ export async function updateProducto(inventarioId: number, payload: ProductoDraf
            marca = $4,
            notas = $5,
            imagen_path_local = $6,
-           imagen_url = $7,
+           imagen_url = COALESCE($7, imagen_url),
            seo_titulo = $8,
            seo_descripcion = $9,
            tags = $10,
@@ -1337,11 +1337,11 @@ export async function getCategoriaByNombre(nombre: string): Promise<Categoria | 
   return rows[0] ?? null;
 }
 
-export async function setTnUpdatedAt(tnProductId: number, updatedAt: string | null): Promise<void> {
+export async function setTnUpdatedAt(tnProductId: number, updatedAt: string | null, imagenUrl?: string | null): Promise<void> {
   const db = await getDatabase();
   await db.execute(
-    "UPDATE productos SET tn_updated_at = $1 WHERE tn_product_id = $2",
-    [updatedAt, tnProductId],
+    "UPDATE productos SET tn_updated_at = $1, imagen_url = COALESCE($2, imagen_url) WHERE tn_product_id = $3",
+    [updatedAt, imagenUrl || null, tnProductId],
   );
 }
 

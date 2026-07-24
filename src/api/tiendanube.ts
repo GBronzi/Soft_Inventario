@@ -1073,7 +1073,7 @@ export async function pushProductoATiendanube(item: CatalogoItem): Promise<{ cat
   const tnVariantId = createdVariant?.id ?? createdVariant?.variant_id ?? item.tnVariantId;
 
   if (createdProduct?.updated_at || createdVariant) {
-    await setTnUpdatedAt(resolvedProductId, createdProduct?.updated_at ?? null);
+    await setTnUpdatedAt(resolvedProductId, createdProduct?.updated_at ?? null, createdProduct?.images?.[0]?.src ?? null);
   }
 
   if (!item.tnProductId || !item.tnVariantId || item.tnProductId !== resolvedProductId || item.tnVariantId !== tnVariantId) {
@@ -1083,6 +1083,11 @@ export async function pushProductoATiendanube(item: CatalogoItem): Promise<{ cat
       await updateLocalLinkAfterCreate(item.inventarioId, resolvedProductId, tnVariantId);
     }
   }
+
+  const finishedAt = new Date().toISOString();
+  localStorage.setItem(SYNC_SINCE_KEY, finishedAt);
+  localStorage.setItem(AUTO_CHECK_SINCE_KEY, finishedAt);
+  localStorage.setItem(SYNC_STATUS_KEY, new Date().toLocaleString());
 
   return { categoryAssigned };
 }
