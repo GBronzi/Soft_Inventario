@@ -177,6 +177,45 @@ html.ui-scale-large .app-page {
   }
 }
 @layer components {
+  .product-description-html {
+    white-space: normal;
+  }
+
+  .product-description-html p {
+    margin-bottom: 0.75rem;
+  }
+
+  .product-description-html p:last-child {
+    margin-bottom: 0;
+  }
+
+  .product-description-html ul,
+  .product-description-html ol {
+    margin: 0.75rem 0 0.75rem 1.25rem;
+    padding-left: 1rem;
+  }
+
+  .product-description-html ul {
+    list-style: disc;
+  }
+
+  .product-description-html ol {
+    list-style: decimal;
+  }
+
+  .product-description-html li {
+    margin: 0.25rem 0;
+  }
+
+  .product-description-html strong,
+  .product-description-html b {
+    font-weight: 700;
+  }
+
+  .product-description-html em,
+  .product-description-html i {
+    font-style: italic;
+  }
   @media (max-width: 1366px), (max-height: 800px) {
     .app-sidebar {
       width: 15.5rem;

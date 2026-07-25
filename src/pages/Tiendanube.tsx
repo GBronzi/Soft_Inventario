@@ -19,6 +19,7 @@ import {
 import {
   acknowledgeTiendanubeWebhookEvents,
   aplicarCambiosSeleccionadosTiendanube,
+  enviarDatosLocalesSeleccionadosATiendanube,
   clearTiendanubeCredentials,
   getPollConfig,
   getTiendanubeCredentials,
@@ -84,6 +85,7 @@ export function Tiendanube() {
   const [pollConfig, setPollConfigState] = useState<TiendanubePollConfig>(() => getPollConfig());
 
   const selectedCount = selectedChanges.length;
+  const selectedDataCount = useMemo(() => preview?.cambios.filter((cambio) => selectedChanges.includes(cambio.id) && cambio.type === "DATOS").length ?? 0, [preview, selectedChanges]);
   const hasCredentials = Boolean(creds);
 
   const groupedCounts = useMemo(() => {
@@ -221,9 +223,27 @@ export function Tiendanube() {
   async function handleApplySelected() {
     if (!preview) return;
     setIsApplying(true);
-    setSyncLogs((prev) => [...prev, nowLog(`Aplicando ${selectedChanges.length} cambio/s seleccionado/s...`)]);
+    setSyncLogs((prev) => [...prev, nowLog(`Tomando ${selectedChanges.length} cambio/s seleccionado/s desde Tiendanube...`)]);
     try {
       await aplicarCambiosSeleccionadosTiendanube(preview, selectedChanges, (msg) => setSyncLogs((prev) => [...prev, nowLog(msg)]));
+      await acknowledgeTiendanubeWebhookEvents(preview.webhookEventKeys);
+      window.dispatchEvent(new CustomEvent(SYNCED_EVENT));
+      setPreview(null);
+      setSelectedChanges([]);
+      void loadStatus();
+    } catch (error) {
+      setSyncLogs((prev) => [...prev, nowLog(`ERROR: ${error instanceof Error ? error.message : String(error)}`)]);
+    } finally {
+      setIsApplying(false);
+    }
+  }
+
+  async function handlePushLocalDataSelected() {
+    if (!preview) return;
+    setIsApplying(true);
+    setSyncLogs((prev) => [...prev, nowLog(`Enviando ${selectedDataCount} producto/s con datos locales hacia Tiendanube...`)]);
+    try {
+      await enviarDatosLocalesSeleccionadosATiendanube(preview, selectedChanges, (msg) => setSyncLogs((prev) => [...prev, nowLog(msg)]));
       await acknowledgeTiendanubeWebhookEvents(preview.webhookEventKeys);
       window.dispatchEvent(new CustomEvent(SYNCED_EVENT));
       setPreview(null);
@@ -376,7 +396,7 @@ export function Tiendanube() {
                       <div className="flex items-center justify-between gap-4 flex-wrap border-b bg-muted/30 p-4">
                         <div>
                           <p className="text-sm font-black uppercase tracking-widest">Cambios encontrados</p>
-                          <p className="text-xs text-muted-foreground">Marca sólo lo que quieres tomar desde Tiendanube.</p>
+                          <p className="text-xs text-muted-foreground">Para Datos puedes elegir si manda el programa a Tiendanube o si tomas Tiendanube hacia el programa.</p>
                         </div>
                         <div className="flex flex-wrap items-center gap-2">
                           <Badge variant="outline">Productos {groupedCounts.PRODUCTO_NUEVO}</Badge>
@@ -394,11 +414,14 @@ export function Tiendanube() {
                         <>
                           <div className="flex items-center justify-between gap-3 p-4 border-b bg-card/40">
                             <div className="text-sm font-bold">Seleccionados: {selectedCount} de {preview.cambios.length}</div>
-                            <div className="flex gap-2">
+                            <div className="flex flex-wrap gap-2">
                               <Button type="button" variant="outline" size="sm" onClick={() => setSelectedChanges(preview.cambios.map((cambio) => cambio.id))}>Marcar todos</Button>
                               <Button type="button" variant="outline" size="sm" onClick={() => setSelectedChanges([])}>Limpiar</Button>
+                              <Button type="button" variant="outline" size="sm" onClick={handlePushLocalDataSelected} disabled={isApplying || selectedDataCount === 0} className="gap-2">
+                                {isApplying ? <Loader2 className="size-4 animate-spin" /> : <CloudSync className="size-4" />} Enviar datos locales a Tiendanube
+                              </Button>
                               <Button type="button" size="sm" onClick={handleApplySelected} disabled={isApplying || selectedCount === 0} className="gap-2">
-                                {isApplying ? <Loader2 className="size-4 animate-spin" /> : <DownloadCloud className="size-4" />} Aplicar seleccionados
+                                {isApplying ? <Loader2 className="size-4 animate-spin" /> : <DownloadCloud className="size-4" />} Tomar desde Tiendanube
                               </Button>
                             </div>
                           </div>

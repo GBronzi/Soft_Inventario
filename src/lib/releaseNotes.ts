@@ -4,6 +4,22 @@ export interface ReleaseNoteSection {
 }
 
 const RELEASE_NOTES: Record<string, ReleaseNoteSection[]> = {
+  "1.1.5": [
+    {
+      title: "Sincronizacion Tiendanube",
+      items: [
+        "Se corrige la revision de Datos para no mostrar diferencias antiguas o locales como cambios entrantes de Tiendanube.",
+        "Al enviar datos locales a Tiendanube, el programa verifica con una lectura posterior que Tiendanube confirme nombre, descripcion, marca, SEO, visibilidad y categoria.",
+        "Si Tiendanube responde OK pero no aplica algun dato, ahora se muestra el campo no confirmado en el registro de operaciones.",
+      ],
+    },
+    {
+      title: "Detalle de producto",
+      items: [
+        "La descripcion comercial respeta parrafos, saltos de linea, listas y formato basico importado desde Tiendanube.",
+      ],
+    },
+  ],
   "1.1.2": [
     {
       title: "Operacion de caja",

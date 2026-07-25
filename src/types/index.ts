@@ -71,6 +71,7 @@ export interface CatalogoItem {
   tags: string | null;
   publicado: number;
   tnProductId: number | null;
+  tnUpdatedAt: string | null;
   tnVariantId: number | null;
   variante: string | null;
   capacidadMedida: string | null;

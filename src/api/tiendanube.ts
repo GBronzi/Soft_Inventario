@@ -549,9 +549,81 @@ export interface TiendanubeSyncPreview {
 }
 
 function normalizeText(value: string | null | undefined) {
-  return (value ?? "").trim().toLowerCase();
+  return (value ?? "").replace(/\s+/g, " ").trim().toLowerCase();
 }
 
+function normalizeDescription(value: string | null | undefined) {
+  return normalizeText((value ?? "")
+    .replace(/<br\s*\/?>/gi, " ")
+    .replace(/<\/p>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&"));
+}
+
+function getLeafCategoryName(value: string | null | undefined) {
+  const parts = value?.split("/").map((segment) => segment.trim()).filter(Boolean) ?? [];
+  return parts.length > 0 ? parts[parts.length - 1] : value;
+}
+
+function sameCategory(local: CatalogoItem, remote: ProductoUpsert) {
+  const localIds = new Set((local.tnCategoryIds ?? []).filter((id) => typeof id === "number"));
+  const remoteIds = new Set((remote.categoriaLocalIds ?? []).filter((id) => typeof id === "number"));
+  if (localIds.size > 0 && remoteIds.size > 0) {
+    if (localIds.size !== remoteIds.size) return false;
+    for (const id of localIds) if (!remoteIds.has(id)) return false;
+    return true;
+  }
+
+  const localCategory = getLeafCategoryName(local.categoria);
+  const remoteCategory = getLeafCategoryName(remote.categoriaNombre);
+  if (!normalizeText(localCategory) || !normalizeText(remoteCategory)) return true;
+  return normalizeText(localCategory) === normalizeText(remoteCategory);
+}
+
+function isRemoteNewerThanLocal(localUpdatedAt: string | null | undefined, remoteUpdatedAt: string | null | undefined) {
+  const localTime = Date.parse(localUpdatedAt ?? "");
+  const remoteTime = Date.parse(remoteUpdatedAt ?? "");
+  if (!Number.isFinite(localTime) || !Number.isFinite(remoteTime)) return false;
+  return remoteTime > localTime + 1000;
+}
+
+function getMetadataDifferences(local: CatalogoItem, remote: ProductoUpsert) {
+  const differences: string[] = [];
+  if (normalizeText(local.nombre) !== normalizeText(remote.nombre)) differences.push("nombre");
+  if (normalizeDescription(local.descripcion) !== normalizeDescription(remote.descripcion)) differences.push("descripción");
+  if (normalizeText(local.marca) !== normalizeText(remote.marca)) differences.push("marca");
+  if (!sameCategory(local, remote)) differences.push("categoría");
+  if (Boolean(local.publicado) !== remote.publicado) differences.push("visibilidad");
+  return differences;
+}
+
+function toLocalizedEs(value: string | null | undefined) {
+  return { es: value ?? "" };
+}
+
+function productMetadataMismatchesLocal(item: CatalogoItem, product: TNProduct, expectedCategoryIds: number[]) {
+  const mismatches: string[] = [];
+  if (normalizeText(item.nombre) !== normalizeText(pickLocale(product.name))) mismatches.push("nombre");
+  if (normalizeDescription(item.descripcion) !== normalizeDescription(pickLocale(product.description))) mismatches.push("descripción");
+  if (normalizeText(item.marca) !== normalizeText(product.brand)) mismatches.push("marca");
+  if (normalizeText(item.tags) !== normalizeText(product.tags)) mismatches.push("tags");
+  if (normalizeText(item.seoTitulo) !== normalizeText(typeof product.seo_title === "string" ? product.seo_title : pickLocale(product.seo_title))) mismatches.push("SEO título");
+  if (normalizeText(item.seoDescripcion) !== normalizeText(typeof product.seo_description === "string" ? product.seo_description : pickLocale(product.seo_description))) mismatches.push("SEO descripción");
+  if (Boolean(item.publicado) !== (product.published !== false)) mismatches.push("visibilidad");
+
+  if (expectedCategoryIds.length > 0) {
+    const remoteIds = new Set((product.categories ?? []).map((category) => category.id).filter((id) => typeof id === "number"));
+    for (const categoryId of expectedCategoryIds) {
+      if (!remoteIds.has(categoryId)) {
+        mismatches.push("categoría");
+        break;
+      }
+    }
+  }
+
+  return mismatches;
+}
 function moneyValue(value: number | null | undefined) {
   return Math.round(Number(value ?? 0) * 100) / 100;
 }
@@ -729,12 +801,8 @@ export async function revisarCambiosTiendanube(
       continue;
     }
 
-    const metadataChanged =
-      normalizeText(existingProduct.nombre) !== normalizeText(producto.nombre) ||
-      normalizeText(existingProduct.descripcion) !== normalizeText(producto.descripcion) ||
-      normalizeText(existingProduct.marca) !== normalizeText(producto.marca) ||
-      normalizeText(existingProduct.categoria) !== normalizeText(producto.categoriaNombre) ||
-      Boolean(existingProduct.publicado) !== producto.publicado;
+    const metadataDifferences = getMetadataDifferences(existingProduct, producto);
+    const metadataChanged = metadataDifferences.length > 0 && isRemoteNewerThanLocal(existingProduct.tnUpdatedAt, producto.tnUpdatedAt);
 
     if (metadataChanged) {
       cambios.push({
@@ -742,7 +810,7 @@ export async function revisarCambiosTiendanube(
         type: "DATOS",
         producto: producto.nombre,
         variante: null,
-        detalle: "Nombre, descripción, marca, categoría o visibilidad difieren entre Tiendanube y el programa.",
+        detalle: `Tiendanube tiene datos más nuevos: ${metadataDifferences.join(", ")}.`,
         accion: "Actualizar datos locales del producto",
         tnProductId: producto.tnProductId,
         tnVariantId: null,
@@ -936,15 +1004,21 @@ export async function importarDesdeTiendanube(
   return { procesados, errores };
 }
 
-export function buildTiendanubeProductPayload(item: Pick<CatalogoItem, "nombre" | "descripcion" | "marca" | "tags" | "publicado" | "seoTitulo" | "seoDescripcion" | "precioVenta" | "stockActual" | "sku" | "codigoBarras">) {
+export function buildTiendanubeProductMetadataPayload(item: Pick<CatalogoItem, "nombre" | "descripcion" | "marca" | "tags" | "publicado" | "seoTitulo" | "seoDescripcion">) {
   return {
-    name: item.nombre,
-    description: item.descripcion ?? "",
+    name: toLocalizedEs(item.nombre),
+    description: toLocalizedEs(item.descripcion),
     brand: item.marca ?? "",
     tags: item.tags ?? "",
     published: item.publicado !== 0,
     seo_title: item.seoTitulo ?? "",
     seo_description: item.seoDescripcion ?? "",
+  };
+}
+
+export function buildTiendanubeProductPayload(item: Pick<CatalogoItem, "nombre" | "descripcion" | "marca" | "tags" | "publicado" | "seoTitulo" | "seoDescripcion" | "precioVenta" | "stockActual" | "sku" | "codigoBarras">) {
+  return {
+    ...buildTiendanubeProductMetadataPayload(item),
     price: item.precioVenta ?? 0,
     stock: item.stockActual ?? 0,
     sku: item.sku ?? null,
@@ -1022,6 +1096,80 @@ export function buildTiendanubeSyncFeedbackMessage({ isEditing, categoryAssigned
     : "Producto creado localmente y subido a Tiendanube, pero la categoría no pudo asignarse.";
 }
 
+async function pushProductoMetadataATiendanube(item: CatalogoItem): Promise<{ categoryAssigned: boolean }> {
+  const creds = getTiendanubeCredentials();
+  if (!creds) return { categoryAssigned: false };
+
+  const target = await resolveTiendanubeProductTarget(creds, item);
+  const tnProductId = target?.productId ?? item.tnProductId;
+  if (!tnProductId) throw new Error(`El producto "${item.nombre}" no está vinculado con Tiendanube.`);
+
+  const metadataBody = buildTiendanubeProductMetadataPayload(item) as ReturnType<typeof buildTiendanubeProductMetadataPayload> & { categories?: number[] };
+  const tnCategoryIds = await resolveTiendanubeCategoryIds(item);
+  if (tnCategoryIds.length > 0) metadataBody.categories = tnCategoryIds;
+
+  const prodRes = await fetch(`${API_BASE}/${creds.userId}/products/${tnProductId}`, {
+    method: "PUT",
+    headers: buildTnHeaders(creds),
+    body: JSON.stringify(metadataBody),
+  });
+  if (!prodRes.ok) {
+    const detail = await getErrorMessageFromResponse(prodRes, prodRes.statusText || "Error actualizando datos del producto");
+    throw new Error(`Error enviando datos del producto a Tiendanube: ${detail}`);
+  }
+
+  const updatedProduct = (await prodRes.json().catch(() => null)) as TNProduct | null;
+  const verifiedProduct = await tnGetOne<TNProduct>(creds, `products/${tnProductId}`);
+  const mismatches = productMetadataMismatchesLocal(item, verifiedProduct, tnCategoryIds);
+  if (mismatches.length > 0) {
+    throw new Error(`Tiendanube respondió OK, pero no confirmó la actualización de: ${mismatches.join(", ")}. Revisa permisos o formato del producto.`);
+  }
+  const categoryAssigned = tnCategoryIds.length > 0;
+
+  await setTnUpdatedAt(tnProductId, verifiedProduct.updated_at ?? updatedProduct?.updated_at ?? null, verifiedProduct.images?.[0]?.src ?? updatedProduct?.images?.[0]?.src ?? null);
+  const finishedAt = new Date().toISOString();
+  localStorage.setItem(SYNC_SINCE_KEY, finishedAt);
+  localStorage.setItem(AUTO_CHECK_SINCE_KEY, finishedAt);
+  localStorage.setItem(SYNC_STATUS_KEY, new Date().toLocaleString());
+  return { categoryAssigned };
+}
+
+export async function enviarDatosLocalesSeleccionadosATiendanube(
+  preview: TiendanubeSyncPreview,
+  selectedIds: string[],
+  onProgress: (msg: string) => void,
+): Promise<{ aplicados: number; errores: number }> {
+  const selected = new Set(selectedIds);
+  const dataChanges = preview.cambios.filter((cambio) => selected.has(cambio.id) && cambio.type === "DATOS");
+  if (dataChanges.length === 0) throw new Error("Selecciona al menos un cambio de Datos para enviar al programa hacia Tiendanube.");
+
+  const catalogo = await getCatalogoProductos();
+  const { byProduct } = buildLocalIndexes(catalogo);
+  const productIds = Array.from(new Set(dataChanges.map((cambio) => cambio.tnProductId)));
+
+  let aplicados = 0;
+  let errores = 0;
+  for (const tnProductId of productIds) {
+    const localItem = byProduct.get(tnProductId)?.[0];
+    if (!localItem) {
+      errores++;
+      onProgress(`ERROR: no se encontró producto local vinculado a Tiendanube ${tnProductId}.`);
+      continue;
+    }
+    try {
+      onProgress(`Enviando datos locales de "${localItem.nombre}" a Tiendanube...`);
+      await pushProductoMetadataATiendanube(localItem);
+      aplicados++;
+    } catch (error) {
+      console.warn("Error enviando datos locales a Tiendanube", tnProductId, error);
+      errores++;
+      onProgress(`ERROR en "${localItem.nombre}": ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  onProgress(`Datos locales enviados a Tiendanube: ${aplicados} producto/s, ${errores} error/es.`);
+  return { aplicados, errores };
+}
 export async function pushProductoATiendanube(item: CatalogoItem): Promise<{ categoryAssigned: boolean }> {
   const creds = getTiendanubeCredentials();
   if (!creds) return { categoryAssigned: false };

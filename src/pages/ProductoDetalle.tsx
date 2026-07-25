@@ -42,6 +42,43 @@ import type { CategoriaRef, MovimientoListado, ProductoDetalle as ProductoDetall
 const KARDEX_PAGE_SIZE = 15;
 const KARDEX_QUERY_LIMIT = KARDEX_PAGE_SIZE + 1;
 
+const ALLOWED_DESCRIPTION_TAGS = new Set(["P", "BR", "UL", "OL", "LI", "STRONG", "B", "EM", "I", "U", "SPAN"]);
+
+function sanitizeDescriptionHtml(value: string | null | undefined) {
+  const raw = value?.trim();
+  if (!raw) return null;
+  if (typeof window === "undefined" || typeof DOMParser === "undefined") {
+    return raw.replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\n/g, "<br />");
+  }
+
+  const hasHtml = /<[^>]+>/.test(raw);
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(hasHtml ? raw : raw.replace(/\n/g, "<br />"), "text/html");
+  doc.querySelectorAll("script, style, iframe, object, embed").forEach((node) => node.remove());
+
+  const walk = (node: Node) => {
+    if (node.nodeType === Node.ELEMENT_NODE) {
+      const element = node as HTMLElement;
+      if (!ALLOWED_DESCRIPTION_TAGS.has(element.tagName)) {
+        element.replaceWith(...Array.from(element.childNodes));
+        return;
+      }
+      for (const attr of Array.from(element.attributes)) {
+        element.removeAttribute(attr.name);
+      }
+    }
+    Array.from(node.childNodes).forEach(walk);
+  };
+
+  Array.from(doc.body.childNodes).forEach(walk);
+  return doc.body.innerHTML.trim() || null;
+}
+
+function DescriptionCommercial({ value }: { value: string | null | undefined }) {
+  const html = sanitizeDescriptionHtml(value);
+  if (!html) return <p className="text-sm text-muted-foreground italic">Sin descripción registrada para esta presentación.</p>;
+  return <div className="product-description-html text-sm text-foreground/80 leading-relaxed" dangerouslySetInnerHTML={{ __html: html }} />;
+}
 function getVariantLabel(variante: Pick<ProductoVarianteResumen, "variante" | "capacidadMedida">) {
   const values = [variante.variante, variante.capacidadMedida]
     .map((value) => value?.trim())
@@ -300,7 +337,7 @@ export function ProductoDetalle() {
                <div className="mt-8 space-y-4">
                   <div className="space-y-1">
                      <p className="text-[10px] font-bold text-muted-foreground uppercase flex items-center gap-1"><FileText className="size-3" /> Descripción Comercial</p>
-                     <p className="text-sm text-foreground/80 leading-relaxed italic">{detalle.descripcion || "Sin descripción registrada para esta presentación."}</p>
+                     <DescriptionCommercial value={detalle.descripcion} />
                   </div>
                   {detalle.notas && (
                     <div className="space-y-1 p-4 rounded-2xl bg-muted/20 border border-border/50">
