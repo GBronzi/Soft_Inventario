@@ -35,20 +35,14 @@ jobs:
           tagName: ${{ github.ref_name }}
           releaseName: "Inventario App ${{ github.ref_name }}"
           releaseBody: |
-            ## Sincronizacion Tiendanube
-            - Los cambios hechos desde el programa hacia Tiendanube se suben automaticamente y no requieren aprobacion manual.
-            - Se preserva la imagen remota de Tiendanube al editar productos desde el programa.
-            - El puente local de imagen se mantiene con la URL que devuelve Tiendanube luego de sincronizar.
-
-            ## Apariencia
-            - Nueva opcion Apariencia y resolucion en Configuracion.
-            - Permite elegir Pantalla chica, Estandar o Pantalla grande.
-            - Ajusta texto, botones, separaciones y area util segun la pantalla del cliente.
+            ## Operacion de caja
+            - Se corrige el error al confirmar Nueva venta: cannot start a transaction within a transaction.
+            - La venta multiple ya no abre una transaccion manual incompatible con el pool SQLite de Tauri.
+            - Se mantiene el registro de venta, detalle, Kardex, descuento de stock y envio posterior de stock a Tiendanube.
 
             ## Importante
-            - Tiendanube al programa sigue mostrando cambios para revisar y aplicar seleccionados.
-            - Programa a Tiendanube sigue subiendo cambios automaticamente.
-            - Antes de instalar se crea un respaldo automatico de la base de datos local.
-          releaseDraft: true
+            - Esta actualizacion apunta al problema reportado en caja/nueva venta.
+            - No cambia la regla de sincronizacion: Programa a Tiendanube sube stock automaticamente; Tiendanube al programa sigue esperando revision del operador.
+            - Antes de instalar se crea un respaldo automatico de la base de datos local.          releaseDraft: true
           prerelease: false
           uploadUpdaterJson: true

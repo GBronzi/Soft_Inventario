@@ -17,7 +17,7 @@ beforeEach(() => {
 });
 
 describe("ventas múltiples", () => {
-  it("registra cabecera, detalles, movimientos y stock en una transacción", async () => {
+  it("registra cabecera, detalles, movimientos y stock sin transaccion manual", async () => {
     mockDb.select
       .mockResolvedValueOnce([{ stockActual: 5, costoUnitario: 40 }])
       .mockResolvedValueOnce([{ stockActual: 3, costoUnitario: 60 }]);
@@ -32,13 +32,13 @@ describe("ventas múltiples", () => {
 
     expect(result.id).toBe(44);
     expect(result.total).toBe(450);
-    expect(mockDb.execute).toHaveBeenNthCalledWith(1, "BEGIN");
     expect(mockDb.execute).toHaveBeenCalledWith(expect.stringContaining("INSERT INTO venta_detalle"), [44, 7, 2, 100, 200]);
     expect(mockDb.execute).toHaveBeenCalledWith(expect.stringContaining("UPDATE inventario"), [3, 7]);
-    expect(mockDb.execute).toHaveBeenCalledWith("COMMIT");
+    expect(mockDb.execute).not.toHaveBeenCalledWith("BEGIN");
+    expect(mockDb.execute).not.toHaveBeenCalledWith("COMMIT");
   });
 
-  it("revierte toda la venta cuando falta stock", async () => {
+  it("no registra la venta cuando falta stock", async () => {
     mockDb.select.mockResolvedValueOnce([{ stockActual: 1, costoUnitario: 40 }]);
 
     await expect(registrarVenta({
@@ -46,8 +46,7 @@ describe("ventas múltiples", () => {
       items: [{ inventarioId: 7, cantidad: 2, precioUnitario: 100 }],
     })).rejects.toThrow("Stock insuficiente");
 
-    expect(mockDb.execute).toHaveBeenLastCalledWith("ROLLBACK");
-    expect(mockDb.execute).not.toHaveBeenCalledWith("COMMIT");
+    expect(mockDb.execute).not.toHaveBeenCalled();
   });
 
   it("devuelve el resumen y detalle del día por medio de pago", async () => {

@@ -4,6 +4,16 @@ export interface ReleaseNoteSection {
 }
 
 const RELEASE_NOTES: Record<string, ReleaseNoteSection[]> = {
+  "1.1.2": [
+    {
+      title: "Operacion de caja",
+      items: [
+        "Se corrige el error al confirmar Nueva venta: cannot start a transaction within a transaction.",
+        "La venta multiple ya no abre una transaccion manual incompatible con el pool SQLite de Tauri.",
+        "Se mantiene el registro de venta, detalle, Kardex, descuento de stock y envio posterior de stock a Tiendanube.",
+      ],
+    },
+  ],
   "1.1.1": [
     {
       title: "Sincronizacion Tiendanube",

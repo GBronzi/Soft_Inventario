@@ -25,7 +25,6 @@ export async function registrarVenta(payload: VentaDraft): Promise<VentaRegistra
   }
 
   const numero = `V-${Date.now()}-${Math.random().toString(36).slice(2, 7).toUpperCase()}`;
-  await db.execute("BEGIN");
   try {
     const preparados: Array<{ inventarioId: number; cantidad: number; precioUnitario: number; costoUnitario: number; stockResultante: number }> = [];
     for (const [inventarioId, item] of agrupados) {
@@ -68,12 +67,9 @@ export async function registrarVenta(payload: VentaDraft): Promise<VentaRegistra
         [item.inventarioId, item.cantidad, item.stockResultante, numero, item.precioUnitario, item.costoUnitario, subtotal],
       );
     }
-
-    await db.execute("COMMIT");
     notifyMonthlySalesUpdate();
     return { id: ventaId, numero, medioPago: payload.medioPago, total, creadaEn: new Date().toISOString(), inventarioIds: preparados.map((item) => item.inventarioId) };
   } catch (error) {
-    await db.execute("ROLLBACK");
     throw error;
   }
 }
