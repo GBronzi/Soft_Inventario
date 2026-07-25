@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { mockAplicarPrecioDesdeTiendanube, mockAplicarStockDesdeTiendanube, mockGetCatalogoProductos, mockGetCategoriasArbol, mockFetch, mockSetTnUpdatedAt, mockUpsertCategorias } = vi.hoisted(() => ({
+const { mockAplicarPrecioDesdeTiendanube, mockAplicarStockDesdeTiendanube, mockGetCatalogoProductos, mockGetCategoriasArbol, mockFetch, mockSetTnUpdatedAt, mockUpsertCategorias, mockUpsertProductoDesdeTiendanube } = vi.hoisted(() => ({
   mockAplicarPrecioDesdeTiendanube: vi.fn(),
   mockAplicarStockDesdeTiendanube: vi.fn(),
   mockGetCatalogoProductos: vi.fn(),
@@ -8,6 +8,7 @@ const { mockAplicarPrecioDesdeTiendanube, mockAplicarStockDesdeTiendanube, mockG
   mockFetch: vi.fn(),
   mockSetTnUpdatedAt: vi.fn(),
   mockUpsertCategorias: vi.fn(),
+  mockUpsertProductoDesdeTiendanube: vi.fn(),
 }));
 
 vi.mock("@tauri-apps/plugin-http", () => ({
@@ -21,10 +22,10 @@ vi.mock("@/database/queries", () => ({
   getCategoriasArbol: mockGetCategoriasArbol,
   setTnUpdatedAt: mockSetTnUpdatedAt,
   upsertCategorias: mockUpsertCategorias,
-  upsertProductoDesdeTiendanube: vi.fn(),
+  upsertProductoDesdeTiendanube: mockUpsertProductoDesdeTiendanube,
 }));
 
-import { buildTiendanubeProductMetadataPayload, buildTiendanubeProductPayload, buildTiendanubeVariantPayload, buildTiendanubeSyncFeedbackMessage, enviarDatosLocalesSeleccionadosATiendanube, pushProductoATiendanube, resolveTiendanubeCategoryIds, resolveTiendanubeProductTarget, revisarCambiosTiendanube, runIncrementalSync, validateTiendanubeConnection } from "@/api/tiendanube";
+import { aplicarCambiosSeleccionadosTiendanube, buildTiendanubeProductMetadataPayload, buildTiendanubeProductPayload, buildTiendanubeVariantPayload, buildTiendanubeSyncFeedbackMessage, enviarDatosLocalesSeleccionadosATiendanube, pushProductoATiendanube, resolveTiendanubeCategoryIds, resolveTiendanubeProductTarget, revisarCambiosTiendanube, runIncrementalSync, validateTiendanubeConnection } from "@/api/tiendanube";
 
 const storage = new Map<string, string>();
 vi.stubGlobal("localStorage", {
@@ -328,6 +329,41 @@ describe("revisarCambiosTiendanube", () => {
     const preview = await revisarCambiosTiendanube(() => undefined);
 
     expect(preview.cambios).toHaveLength(0);
+  });
+
+  it("detecta y aplica imagen faltante desde Tiendanube sin tocar otros datos", async () => {
+    localStorage.setItem("tiendanube_credentials", JSON.stringify({ accessToken: "token", userId: "123" }));
+    mockFetch
+      .mockResolvedValueOnce({ ok: true, status: 200, statusText: "OK", json: async () => [] })
+      .mockResolvedValueOnce({ ok: true, status: 200, statusText: "OK", json: async () => [] })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        statusText: "OK",
+        json: async () => [{
+          id: 10,
+          name: { es: "Perfume" },
+          description: { es: "" },
+          updated_at: "2026-07-25T10:00:00Z",
+          images: [{ src: "https://cdn.tn/perfume.jpg" }],
+          variants: [{ id: 20, product_id: 10, price: "100", stock: 5, sku: "SKU-1", barcode: null, values: [{ es: "100 ml" }] }],
+        }],
+      })
+      .mockResolvedValueOnce({ ok: true, status: 200, statusText: "OK", json: async () => [] });
+    mockUpsertCategorias.mockResolvedValue(new Map());
+    mockGetCatalogoProductos.mockResolvedValue([{ inventarioId: 7, productoId: 1, nombre: "Perfume", descripcion: "", categoria: null, marca: null, notas: null, imagenPathLocal: null, imagenUrl: null, seoTitulo: null, seoDescripcion: null, tags: null, publicado: 1, tnProductId: 10, tnUpdatedAt: "2026-07-25T10:00:00Z", tnVariantId: 20, variante: "100 ml", capacidadMedida: "100 ml", sku: "SKU-1", codigoBarras: null, stockActual: 5, stockMinimo: 0, precioCompra: 0, precioVenta: 100, ubicacion: null, lote: null, vencimiento: null, estado: "ACTIVO", tnCategoryIds: [] }]);
+
+    const preview = await revisarCambiosTiendanube(() => undefined);
+
+    expect(preview.cambios).toHaveLength(1);
+    expect(preview.cambios[0]).toMatchObject({ type: "IMAGEN", id: "imagen-10" });
+
+    await aplicarCambiosSeleccionadosTiendanube(preview, ["imagen-10"], () => undefined);
+
+    expect(mockSetTnUpdatedAt).toHaveBeenCalledWith(10, "2026-07-25T10:00:00Z", "https://cdn.tn/perfume.jpg");
+    expect(mockUpsertProductoDesdeTiendanube).not.toHaveBeenCalled();
+    expect(mockAplicarStockDesdeTiendanube).not.toHaveBeenCalled();
+    expect(mockAplicarPrecioDesdeTiendanube).not.toHaveBeenCalled();
   });
   it("detecta ventas de Tiendanube, stock y precio sin aplicar cambios locales", async () => {
     localStorage.setItem("tiendanube_credentials", JSON.stringify({ accessToken: "token", userId: "123" }));

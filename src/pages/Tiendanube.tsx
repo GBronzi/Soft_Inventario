@@ -56,6 +56,7 @@ function changeTypeLabel(type: TiendanubeSyncChange["type"]) {
     STOCK: "Stock",
     PRECIO: "Precio",
     DATOS: "Datos",
+    IMAGEN: "Imagen",
   };
   return labels[type];
 }
@@ -89,7 +90,7 @@ export function Tiendanube() {
   const hasCredentials = Boolean(creds);
 
   const groupedCounts = useMemo(() => {
-    const counts: Record<TiendanubeSyncChange["type"], number> = { PRODUCTO_NUEVO: 0, VARIANTE_NUEVA: 0, VENTA_TN: 0, STOCK: 0, PRECIO: 0, DATOS: 0 };
+    const counts: Record<TiendanubeSyncChange["type"], number> = { PRODUCTO_NUEVO: 0, VARIANTE_NUEVA: 0, VENTA_TN: 0, STOCK: 0, PRECIO: 0, DATOS: 0, IMAGEN: 0 };
     for (const cambio of preview?.cambios ?? []) counts[cambio.type]++;
     return counts;
   }, [preview]);

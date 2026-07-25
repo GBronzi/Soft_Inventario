@@ -520,7 +520,7 @@ interface TiendanubeOrderMatch {
   status: string | null;
 }
 
-export type TiendanubeSyncChangeType = "PRODUCTO_NUEVO" | "VARIANTE_NUEVA" | "VENTA_TN" | "STOCK" | "PRECIO" | "DATOS";
+export type TiendanubeSyncChangeType = "PRODUCTO_NUEVO" | "VARIANTE_NUEVA" | "VENTA_TN" | "STOCK" | "PRECIO" | "DATOS" | "IMAGEN";
 
 export interface TiendanubeSyncChange {
   id: string;
@@ -801,6 +801,26 @@ export async function revisarCambiosTiendanube(
       continue;
     }
 
+    const localImageUrl = (existingProduct.imagenUrl ?? "").trim();
+    const remoteImageUrl = (producto.imagenUrl ?? "").trim();
+    if (!localImageUrl && remoteImageUrl) {
+      cambios.push({
+        id: `imagen-${producto.tnProductId}`,
+        type: "IMAGEN",
+        producto: producto.nombre,
+        variante: null,
+        detalle: "El producto local no tiene imagen y Tiendanube tiene una imagen principal disponible.",
+        accion: "Completar imagen local desde Tiendanube",
+        tnProductId: producto.tnProductId,
+        tnVariantId: null,
+        inventarioId: existingProduct.inventarioId,
+        localStock: null,
+        remoteStock: null,
+        stockDelta: null,
+        localPrice: null,
+        remotePrice: null,
+      });
+    }
     const metadataDifferences = getMetadataDifferences(existingProduct, producto);
     const metadataChanged = metadataDifferences.length > 0 && isRemoteNewerThanLocal(existingProduct.tnUpdatedAt, producto.tnUpdatedAt);
 
@@ -953,6 +973,14 @@ export async function aplicarCambiosSeleccionadosTiendanube(
       if (cambio.type === "PRECIO" && cambio.inventarioId != null && cambio.remotePrice != null) {
         onProgress(`Aplicando precio de "${cambio.producto}" (${variantDisplay(cambio.variante)})...`);
         await aplicarPrecioDesdeTiendanube({ inventarioId: cambio.inventarioId, precioVenta: cambio.remotePrice });
+        aplicados++;
+      }
+      if (cambio.type === "IMAGEN") {
+        const producto = productosById.get(cambio.tnProductId);
+        const remoteImageUrl = producto?.imagenUrl?.trim();
+        if (!producto || !remoteImageUrl) throw new Error("Tiendanube no devolvió una imagen válida para aplicar.");
+        onProgress(`Completando imagen de "${cambio.producto}" desde Tiendanube...`);
+        await setTnUpdatedAt(cambio.tnProductId, producto.tnUpdatedAt ?? null, remoteImageUrl);
         aplicados++;
       }
     } catch (error) {

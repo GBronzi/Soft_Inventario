@@ -4,6 +4,16 @@ export interface ReleaseNoteSection {
 }
 
 const RELEASE_NOTES: Record<string, ReleaseNoteSection[]> = {
+  "1.1.6": [
+    {
+      title: "Sincronizacion Tiendanube",
+      items: [
+        "La revision de cambios ahora detecta productos locales sin imagen cuando Tiendanube tiene una imagen principal disponible.",
+        "Al aplicar el cambio Imagen, el programa completa solo la URL remota sin tocar stock, precio ni datos generales del producto.",
+        "La pantalla Sincronizacion muestra el nuevo tipo Imagen para que el cliente elija que productos completar.",
+      ],
+    },
+  ],
   "1.1.5": [
     {
       title: "Sincronizacion Tiendanube",
