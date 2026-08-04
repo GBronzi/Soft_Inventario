@@ -1,10 +1,11 @@
 import { invoke } from "@tauri-apps/api/core";
-import { Boxes, ClipboardList, History, PackageSearch, ShoppingCart, TriangleAlert, Wallet } from "lucide-react";
+import { Boxes, ClipboardList, History, PackageSearch, ReceiptText, ShoppingCart, TriangleAlert, Wallet } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { AlertaStockList } from "@/components/shared/AlertaStockList";
 import { EscanerBluetoothPanel } from "@/components/shared/EscanerBluetoothPanel";
+import { RegistroVentasPanel } from "@/components/shared/RegistroVentasPanel";
 import { ResumenCard } from "@/components/shared/ResumenCard";
 import { VentasDiaCard } from "@/components/shared/VentasDiaCard";
 import { Button } from "@/components/ui/button";
@@ -73,6 +74,7 @@ export function Dashboard() {
   const [monthlySummary, setMonthlySummary] = useState<MonthlyDashboardSummary | null>(null);
   const [todaySales, setTodaySales] = useState<ResumenVentasDia | null>(null);
   const [showTodaySales, setShowTodaySales] = useState(false);
+  const [showSalesRegistry, setShowSalesRegistry] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
   const todayDateParam = getTodayDateParam();
 
@@ -177,6 +179,7 @@ export function Dashboard() {
           <Button variant="secondary" className="h-11 px-6 rounded-xl" onClick={() => navigate(buildMovimientosRoute())} type="button">Registrar movimiento</Button>
           <Button variant="destructive" className="h-11 px-6 rounded-xl shadow-lg shadow-destructive/20" onClick={() => navigate(buildMovimientosRoute({ presetTipoMovimiento: "SALIDA" }))} type="button">Registrar salida</Button>
           <Button variant="outline" className="h-11 px-6 rounded-xl border-dashed border-2" onClick={() => navigate(buildVentaRapidaRoute())} type="button">Venta rápida local</Button>
+          <Button variant="outline" className="h-11 px-6 rounded-xl" onClick={() => setShowSalesRegistry((current) => !current)} type="button"><ReceiptText className="mr-2 size-4" />Registro de ventas</Button>
         </CardContent>
       </Card>
 
@@ -184,6 +187,12 @@ export function Dashboard() {
         summary={todaySales}
         open={showTodaySales}
         onToggle={() => setShowTodaySales((current) => !current)}
+        formatCurrency={(value) => currencyFormatter.format(value)}
+      />
+
+      <RegistroVentasPanel
+        open={showSalesRegistry}
+        onClose={() => setShowSalesRegistry(false)}
         formatCurrency={(value) => currencyFormatter.format(value)}
       />
 

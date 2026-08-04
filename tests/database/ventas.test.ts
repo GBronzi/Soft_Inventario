@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { getDatabase } from "@/database/db";
-import { getResumenVentasDia, registrarVenta } from "@/database/ventas";
+import { getRegistroVentasMensual, getResumenVentasDia, guardarComentarioRegistroVenta, registrarVenta } from "@/database/ventas";
 
 vi.mock("@/database/db", () => ({ getDatabase: vi.fn() }));
 vi.mock("@/database/queries", () => ({ notifyMonthlySalesUpdate: vi.fn() }));
@@ -49,6 +49,27 @@ describe("ventas múltiples", () => {
     expect(mockDb.execute).not.toHaveBeenCalled();
   });
 
+
+  it("devuelve el registro mensual unificado de programa y Tiendanube", async () => {
+    mockDb.select.mockResolvedValueOnce([
+      { registroKey: "PROGRAMA:1", origen: "PROGRAMA", fecha: "2026-07-06 10:30:00", numero: "V-1", producto: "Perfume", variante: "100 ml", cantidad: 2, precioUnitario: 100, subtotal: 200, medioPago: "EFECTIVO", entradaVenta: "Mostrador", comentario: "Cliente frecuente" },
+      { registroKey: "TIENDANUBE:9", origen: "TIENDANUBE", fecha: "2026-07-07 11:00:00", numero: "TN-P1-V2", producto: "Perfume TN", variante: "50 ml", cantidad: 1, precioUnitario: 300, subtotal: 300, medioPago: "TIENDANUBE", entradaVenta: "Venta detectada desde Tiendanube", comentario: "" },
+    ]);
+
+    const result = await getRegistroVentasMensual("2026-07");
+
+    expect(result.totalPrograma).toBe(200);
+    expect(result.totalTiendanube).toBe(300);
+    expect(result.totalGeneral).toBe(500);
+    expect(result.unidadesGeneral).toBe(3);
+    expect(mockDb.select).toHaveBeenCalledWith(expect.stringContaining("UNION ALL"), ["2026-07"]);
+  });
+
+  it("guarda comentario por clave de registro de venta", async () => {
+    await guardarComentarioRegistroVenta("PROGRAMA:1", "Entregado con bolsa");
+
+    expect(mockDb.execute).toHaveBeenCalledWith(expect.stringContaining("venta_registro_comentarios"), ["PROGRAMA:1", "Entregado con bolsa"]);
+  });
   it("devuelve el resumen y detalle del día por medio de pago", async () => {
     mockDb.select
       .mockResolvedValueOnce([{ total: 450, unidades: 3, operaciones: 2, efectivo: 200, transferencia: 250, tarjeta: 0, otro: 0 }])

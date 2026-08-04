@@ -1363,6 +1363,11 @@ export async function aplicarStockDesdeTiendanube(payload: {
   tnVariantId: number;
   stock: number;
   precioVenta?: number;
+  tipoMovimiento?: "AJUSTE" | "SALIDA";
+  concepto?: "SINCRONIZACION_TN" | "VENTA";
+  motivo?: string;
+  referencia?: string;
+  importeTotal?: number;
 }): Promise<void> {
   const db = await getDatabase();
   const rows = await db.select<Array<{ stockActual: number; precioCompra: number | null; precioVenta: number | null }>>(
@@ -1377,6 +1382,11 @@ export async function aplicarStockDesdeTiendanube(payload: {
   const stockDelta = nextStock - previousStock;
   const nextPrice = typeof payload.precioVenta === "number" ? payload.precioVenta : Number(current.precioVenta ?? 0);
   const syncReference = `TN-P${payload.tnProductId}-V${payload.tnVariantId}`;
+  const tipoMovimiento = payload.tipoMovimiento ?? "AJUSTE";
+  const concepto = payload.concepto ?? "SINCRONIZACION_TN";
+  const referencia = payload.referencia?.trim() || syncReference;
+  const motivo = payload.motivo?.trim() || `Ajuste por sincronizacion Tiendanube (${previousStock} -> ${nextStock})`;
+  const importeTotal = Math.max(0, Number(payload.importeTotal ?? 0));
 
   await db.execute(
     `UPDATE inventario
@@ -1390,15 +1400,18 @@ export async function aplicarStockDesdeTiendanube(payload: {
       `INSERT INTO movimientos_stock (
         inventario_id, tipo_movimiento, concepto, cantidad, stock_resultante,
         motivo, referencia, precio_unitario, costo_unitario, importe_total, operacion_id
-      ) VALUES ($1, 'AJUSTE', 'SINCRONIZACION_TN', $2, $3, $4, $5, $6, $7, 0, $5)`,
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $7)`,
       [
         payload.inventarioId,
+        tipoMovimiento,
+        concepto,
         stockDelta,
         nextStock,
-        `Ajuste por sincronizacion Tiendanube (${previousStock} -> ${nextStock})`,
-        syncReference,
+        motivo,
+        referencia,
         nextPrice,
         Number(current.precioCompra ?? 0),
+        importeTotal,
       ],
     );
   }

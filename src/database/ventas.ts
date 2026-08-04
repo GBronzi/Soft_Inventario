@@ -1,6 +1,6 @@
 import { getDatabase } from "@/database/db";
 import { notifyMonthlySalesUpdate } from "@/database/queries";
-import type { ResumenVentasDia, VentaDraft, VentaRegistrada } from "@/types";
+import type { RegistroVentasMensual, ResumenVentasDia, VentaDraft, VentaRegistroItem, VentaRegistrada } from "@/types";
 
 function optionalText(value?: string) {
   const normalized = value?.trim() ?? "";
@@ -115,4 +115,95 @@ export async function getResumenVentasDia(fecha?: string): Promise<ResumenVentas
     otro: Number(row?.otro ?? 0),
     detalles,
   };
+}
+
+export async function getRegistroVentasMensual(mes: string): Promise<RegistroVentasMensual> {
+  const db = await getDatabase();
+  const selectedMonth = /^\d{4}-\d{2}$/.test(mes) ? mes : new Date().toISOString().slice(0, 7);
+  const registros = await db.select<VentaRegistroItem[]>(
+    `SELECT
+        'PROGRAMA:' || vd.id AS registroKey,
+        'PROGRAMA' AS origen,
+        v.creada_en AS fecha,
+        v.numero AS numero,
+        p.nombre AS producto,
+        COALESCE(NULLIF(i.capacidad_medida, ''), NULLIF(i.variante, '')) AS variante,
+        vd.cantidad AS cantidad,
+        vd.precio_unitario AS precioUnitario,
+        vd.subtotal AS subtotal,
+        v.medio_pago AS medioPago,
+        COALESCE(NULLIF(v.nota, ''), 'Venta registrada en el programa') AS entradaVenta,
+        COALESCE(c.comentario, '') AS comentario
+      FROM venta_detalle vd
+      INNER JOIN ventas v ON v.id = vd.venta_id
+      INNER JOIN inventario i ON i.id = vd.inventario_id
+      INNER JOIN productos p ON p.id = i.producto_id
+      LEFT JOIN venta_registro_comentarios c ON c.registro_key = 'PROGRAMA:' || vd.id
+      WHERE v.estado = 'CONFIRMADA' AND strftime('%Y-%m', v.creada_en, 'localtime') = $1
+      UNION ALL
+      SELECT
+        'TIENDANUBE:' || m.id AS registroKey,
+        'TIENDANUBE' AS origen,
+        m.fecha_movimiento AS fecha,
+        COALESCE(NULLIF(m.referencia, ''), 'Tiendanube') AS numero,
+        p.nombre AS producto,
+        COALESCE(NULLIF(i.capacidad_medida, ''), NULLIF(i.variante, '')) AS variante,
+        ABS(m.cantidad) AS cantidad,
+        COALESCE(NULLIF(m.precio_unitario, 0), i.precio_venta, 0) AS precioUnitario,
+        CASE
+          WHEN COALESCE(m.importe_total, 0) > 0 THEN m.importe_total
+          ELSE ABS(m.cantidad) * COALESCE(NULLIF(m.precio_unitario, 0), i.precio_venta, 0)
+        END AS subtotal,
+        'TIENDANUBE' AS medioPago,
+        COALESCE(NULLIF(m.motivo, ''), 'Venta detectada desde Tiendanube') AS entradaVenta,
+        COALESCE(c.comentario, '') AS comentario
+      FROM movimientos_stock m
+      INNER JOIN inventario i ON i.id = m.inventario_id
+      INNER JOIN productos p ON p.id = i.producto_id
+      LEFT JOIN venta_registro_comentarios c ON c.registro_key = 'TIENDANUBE:' || m.id
+      WHERE m.cantidad < 0
+        AND strftime('%Y-%m', m.fecha_movimiento, 'localtime') = $1
+        AND (
+          m.concepto = 'SINCRONIZACION_TN'
+          OR LOWER(COALESCE(m.motivo, '')) LIKE '%tiendanube%'
+          OR LOWER(COALESCE(m.referencia, '')) LIKE 'tn-%'
+        )
+      ORDER BY fecha DESC, registroKey DESC`,
+    [selectedMonth],
+  );
+
+  const normalized = registros.map((item) => ({
+    ...item,
+    cantidad: Number(item.cantidad ?? 0),
+    precioUnitario: Number(item.precioUnitario ?? 0),
+    subtotal: Number(item.subtotal ?? 0),
+    comentario: item.comentario ?? "",
+  }));
+  const totalPrograma = normalized.filter((item) => item.origen === "PROGRAMA").reduce((sum, item) => sum + item.subtotal, 0);
+  const totalTiendanube = normalized.filter((item) => item.origen === "TIENDANUBE").reduce((sum, item) => sum + item.subtotal, 0);
+  const unidadesPrograma = normalized.filter((item) => item.origen === "PROGRAMA").reduce((sum, item) => sum + item.cantidad, 0);
+  const unidadesTiendanube = normalized.filter((item) => item.origen === "TIENDANUBE").reduce((sum, item) => sum + item.cantidad, 0);
+
+  return {
+    mes: selectedMonth,
+    totalPrograma,
+    totalTiendanube,
+    totalGeneral: totalPrograma + totalTiendanube,
+    unidadesPrograma,
+    unidadesTiendanube,
+    unidadesGeneral: unidadesPrograma + unidadesTiendanube,
+    registros: normalized,
+  };
+}
+
+export async function guardarComentarioRegistroVenta(registroKey: string, comentario: string): Promise<void> {
+  const key = registroKey.trim();
+  if (!key) throw new Error("No se pudo identificar el registro de venta.");
+  const db = await getDatabase();
+  await db.execute(
+    `INSERT INTO venta_registro_comentarios (registro_key, comentario, actualizado_en)
+       VALUES ($1, $2, CURRENT_TIMESTAMP)
+       ON CONFLICT(registro_key) DO UPDATE SET comentario = excluded.comentario, actualizado_en = CURRENT_TIMESTAMP`,
+    [key, comentario.trim()],
+  );
 }

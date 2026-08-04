@@ -135,6 +135,34 @@ export interface ResumenVentasDia {
   detalles: VentaDetalleListado[];
 }
 
+export type VentaRegistroOrigen = "PROGRAMA" | "TIENDANUBE";
+
+export interface VentaRegistroItem {
+  registroKey: string;
+  origen: VentaRegistroOrigen;
+  fecha: string;
+  numero: string;
+  producto: string;
+  variante: string | null;
+  cantidad: number;
+  precioUnitario: number;
+  subtotal: number;
+  medioPago: MedioPago | "TIENDANUBE";
+  entradaVenta: string;
+  comentario: string;
+}
+
+export interface RegistroVentasMensual {
+  mes: string;
+  totalPrograma: number;
+  totalTiendanube: number;
+  totalGeneral: number;
+  unidadesPrograma: number;
+  unidadesTiendanube: number;
+  unidadesGeneral: number;
+  registros: VentaRegistroItem[];
+}
+
 export interface ProductoDetalle extends CatalogoItem {
   categorias?: CategoriaRef[];
 }

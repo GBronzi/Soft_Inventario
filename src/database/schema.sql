@@ -153,6 +153,13 @@ CREATE INDEX IF NOT EXISTS idx_movimientos_concepto_fecha ON movimientos_stock (
 CREATE INDEX IF NOT EXISTS idx_movimientos_operacion ON movimientos_stock (operacion_id) WHERE operacion_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_ventas_fecha ON ventas (creada_en DESC);
 CREATE INDEX IF NOT EXISTS idx_ventas_medio_pago_fecha ON ventas (medio_pago, creada_en DESC);
+CREATE TABLE IF NOT EXISTS venta_registro_comentarios (
+    registro_key TEXT PRIMARY KEY,
+    comentario TEXT NOT NULL DEFAULT '',
+    actualizado_en DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_venta_registro_comentarios_fecha ON venta_registro_comentarios (actualizado_en DESC);
 CREATE INDEX IF NOT EXISTS idx_venta_detalle_venta ON venta_detalle (venta_id);
 CREATE INDEX IF NOT EXISTS idx_venta_detalle_inventario ON venta_detalle (inventario_id);
 CREATE INDEX IF NOT EXISTS idx_plantillas_movimientos_inventario ON plantillas_movimientos (inventario_id, actualizado_en DESC);

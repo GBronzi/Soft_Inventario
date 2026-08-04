@@ -35,14 +35,22 @@ jobs:
           tagName: ${{ github.ref_name }}
           releaseName: "Inventario App ${{ github.ref_name }}"
           releaseBody: |
-            ## Sincronizacion Tiendanube
-            - Se agrega el cambio Imagen en la ventana Sincronizacion para completar productos locales sin imagen usando la URL principal de Tiendanube.
-            - Al aplicar Imagen, solo se actualiza la URL local de imagen; no se modifica stock, precio ni datos generales.
-            - Se mantiene la revision seleccionable para que el cliente decida que imagenes completar.
+            ## Registro de ventas
+            - Se agrega una ventana de Registro de ventas desde Vista general para revisar ventas del programa y bajas detectadas desde Tiendanube por mes.
+            - La tabla muestra origen, fecha, producto, variante, cantidad, total y permite guardar comentarios por registro.
+            - El selector mensual permite filtrar el historial sin modificar inventario ni sincronizacion.
+
+            ## Exportacion Excel
+            - Se corrige el boton Excel para guardar el archivo con el dialogo nativo de Windows.
+            - El archivo se genera en formato CSV compatible con Excel, incluyendo totales del mes y comentarios.
+
+            ## Sincronizacion y stock
+            - Las ventas detectadas desde Tiendanube quedan registradas como salidas de venta para mejorar la trazabilidad mensual.
+            - Se mantiene separado el flujo Tiendanube al programa y programa a Tiendanube para no aplicar cambios sin revision cuando corresponda.
 
             ## Importante
-            - Stock, precio, ventas Tiendanube y productos nuevos mantienen el flujo de revision existente.
-            - Antes de instalar se crea un respaldo automatico de la base de datos local.
+            - Esta actualizacion no elimina ni reinicia la base local del cliente.
+            - Antes de instalar se recomienda conservar un respaldo reciente de la base de datos local.
           releaseDraft: true
           prerelease: false
           uploadUpdaterJson: true

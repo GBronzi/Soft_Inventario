@@ -147,6 +147,14 @@ fn reset_with_support(
     auth::reset_with_support(app, support_response, username, password)
 }
 
+#[tauri::command]
+fn save_text_file(path: String, contents: String) -> Result<(), String> {
+    if path.trim().is_empty() {
+        return Err("No se selecciono una ubicacion para guardar el archivo.".to_string());
+    }
+    fs::write(path, contents).map_err(|error| format!("No se pudo guardar el archivo: {error}"))
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let mut builder = tauri::Builder::default();
@@ -191,7 +199,8 @@ pub fn run() {
             reset_with_recovery,
             generate_support_request,
             reset_with_support,
-            restore_database
+            restore_database,
+            save_text_file
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -962,11 +962,22 @@ export async function aplicarCambiosSeleccionadosTiendanube(
     try {
       if ((cambio.type === "STOCK" || cambio.type === "VENTA_TN") && cambio.inventarioId != null && cambio.tnVariantId != null && cambio.remoteStock != null) {
         onProgress(`Aplicando stock de "${cambio.producto}" (${variantDisplay(cambio.variante)})...`);
+        const isTiendanubeSale = cambio.type === "VENTA_TN";
+        const saleUnits = Math.abs(Number(cambio.stockDelta ?? 0));
+        const unitPrice = Number(cambio.localPrice ?? cambio.remotePrice ?? 0);
+        const orderRefs = cambio.orderMatches?.length
+          ? cambio.orderMatches.map((order) => `#${order.number}`).join(", ")
+          : null;
         await aplicarStockDesdeTiendanube({
           inventarioId: cambio.inventarioId,
           tnProductId: cambio.tnProductId,
           tnVariantId: cambio.tnVariantId,
           stock: cambio.remoteStock,
+          tipoMovimiento: isTiendanubeSale ? "SALIDA" : undefined,
+          concepto: isTiendanubeSale ? "VENTA" : undefined,
+          motivo: isTiendanubeSale ? cambio.detalle : undefined,
+          referencia: isTiendanubeSale && orderRefs ? `Tiendanube ${orderRefs}` : undefined,
+          importeTotal: isTiendanubeSale ? saleUnits * unitPrice : undefined,
         });
         aplicados++;
       }
