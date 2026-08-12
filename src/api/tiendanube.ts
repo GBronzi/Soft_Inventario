@@ -674,10 +674,24 @@ async function obtenerOrdenesRecientesTiendanube(
   }
 }
 
-function buildOrderMatchesByVariant(orders: TNOrder[]) {
+function isCancelledOrRejectedOrder(order: TNOrder) {
+  const status = String(order.status ?? "").toLowerCase();
+  const paymentStatus = String(order.payment_status ?? "").toLowerCase();
+  return status === "cancelled" || ["voided", "refunded", "partially_refunded"].includes(paymentStatus);
+}
+
+function isPaidOrder(order: TNOrder) {
+  return !isCancelledOrRejectedOrder(order) && String(order.payment_status ?? "").toLowerCase() === "paid";
+}
+
+function isUnconfirmedOrder(order: TNOrder) {
+  return !isPaidOrder(order);
+}
+
+function buildOrderMatchesByVariant(orders: TNOrder[], shouldInclude: (order: TNOrder) => boolean) {
   const map = new Map<number, TiendanubeOrderMatch[]>();
   for (const order of orders) {
-    if (order.status === "cancelled" || order.payment_status === "voided" || order.payment_status === "refunded") continue;
+    if (!shouldInclude(order)) continue;
     for (const product of order.products ?? []) {
       const variantId = Number(product.variant_id);
       if (!Number.isFinite(variantId)) continue;
@@ -696,6 +710,10 @@ function buildOrderMatchesByVariant(orders: TNOrder[]) {
     }
   }
   return map;
+}
+
+function getMatchedOrderQuantity(matches: TiendanubeOrderMatch[]) {
+  return matches.reduce((total, match) => total + Number(match.quantity ?? 0), 0);
 }
 
 function describeOrderMatches(matches: TiendanubeOrderMatch[], delta: number) {
@@ -753,7 +771,7 @@ export async function revisarCambiosTiendanube(
   const productosById = new Map(productosTn.map((product) => [product.id, product]));
   const orderProductIds = new Set<number>();
   for (const order of ordenes) {
-    if (order.status === "cancelled" || order.payment_status === "voided" || order.payment_status === "refunded") continue;
+    if (!isPaidOrder(order)) continue;
     for (const product of order.products ?? []) {
       const productId = Number(product.product_id);
       if (Number.isFinite(productId) && !productosById.has(productId)) orderProductIds.add(productId);
@@ -769,7 +787,8 @@ export async function revisarCambiosTiendanube(
   }
 
   const productos = await Promise.all(Array.from(productosById.values()).map((prod) => normalizarProducto(creds, prod, catMap, onProgress, { generateMissingSku: false })));
-  const orderMatchesByVariant = buildOrderMatchesByVariant(ordenes);
+  const paidOrderMatchesByVariant = buildOrderMatchesByVariant(ordenes, isPaidOrder);
+  const unconfirmedOrderMatchesByVariant = buildOrderMatchesByVariant(ordenes, isUnconfirmedOrder);
 
   onProgress("Comparando Tiendanube contra la base local...");
   const catalogo = await getCatalogoProductos();
@@ -869,27 +888,38 @@ export async function revisarCambiosTiendanube(
       const remoteStock = Number(variante.stock ?? 0);
       if (localStock !== remoteStock) {
         const delta = remoteStock - localStock;
-        const orderMatches = delta < 0 ? (orderMatchesByVariant.get(variante.tnVariantId) ?? []) : [];
-        const orderDetail = describeOrderMatches(orderMatches, delta);
-        cambios.push({
-          id: `${orderMatches.length > 0 ? "venta" : "stock"}-${producto.tnProductId}-${variante.tnVariantId}`,
-          type: orderMatches.length > 0 ? "VENTA_TN" : "STOCK",
-          producto: producto.nombre,
-          variante: variantDisplay(variante.variante),
-          detalle: orderDetail ?? (delta < 0
-            ? `Tiendanube tiene ${Math.abs(delta)} unidad/es menos. Posible venta o ajuste hecho en la tienda online.`
-            : `Tiendanube tiene ${delta} unidad/es más. Posible reposición o ajuste hecho en la tienda online.`),
-          accion: orderMatches.length > 0 ? "Registrar stock actualizado por venta Tiendanube" : "Tomar stock de Tiendanube en el programa",
-          tnProductId: producto.tnProductId,
-          tnVariantId: variante.tnVariantId,
-          inventarioId: localVariant.inventarioId,
-          localStock,
-          remoteStock,
-          stockDelta: delta,
-          localPrice: moneyValue(localVariant.precioVenta),
-          remotePrice: moneyValue(variante.precioVenta),
-          orderMatches,
-        });
+        const paidOrderMatches = delta < 0 ? (paidOrderMatchesByVariant.get(variante.tnVariantId) ?? []) : [];
+        const unconfirmedOrderMatches = delta < 0 ? (unconfirmedOrderMatchesByVariant.get(variante.tnVariantId) ?? []) : [];
+        const paidQuantity = getMatchedOrderQuantity(paidOrderMatches);
+        const isConfirmedTiendanubeSale = paidOrderMatches.length > 0 && paidQuantity === Math.abs(delta);
+
+        const unconfirmedQuantity = getMatchedOrderQuantity(unconfirmedOrderMatches);
+        const stockDropLooksReservedByUnconfirmedOrder = unconfirmedOrderMatches.length > 0 && unconfirmedQuantity >= Math.abs(delta);
+
+        if (delta < 0 && !isConfirmedTiendanubeSale && stockDropLooksReservedByUnconfirmedOrder) {
+          onProgress(`Venta Tiendanube pendiente/no pagada para "${producto.nombre}" (${variantDisplay(variante.variante)}). No se descuenta stock local hasta que el pago figure como confirmado.`);
+        } else {
+          const orderDetail = isConfirmedTiendanubeSale ? describeOrderMatches(paidOrderMatches, delta) : null;
+          cambios.push({
+            id: `${isConfirmedTiendanubeSale ? "venta" : "stock"}-${producto.tnProductId}-${variante.tnVariantId}`,
+            type: isConfirmedTiendanubeSale ? "VENTA_TN" : "STOCK",
+            producto: producto.nombre,
+            variante: variantDisplay(variante.variante),
+            detalle: orderDetail ?? (delta < 0
+              ? `Tiendanube tiene ${Math.abs(delta)} unidad/es menos. No coincide exactamente con ventas pagadas; revisar antes de aplicar.`
+              : `Tiendanube tiene ${delta} unidad/es mas. Posible reposicion o ajuste hecho en la tienda online.`),
+            accion: isConfirmedTiendanubeSale ? "Registrar stock actualizado por venta Tiendanube pagada" : "Tomar stock de Tiendanube en el programa",
+            tnProductId: producto.tnProductId,
+            tnVariantId: variante.tnVariantId,
+            inventarioId: localVariant.inventarioId,
+            localStock,
+            remoteStock,
+            stockDelta: delta,
+            localPrice: moneyValue(localVariant.precioVenta),
+            remotePrice: moneyValue(variante.precioVenta),
+            orderMatches: isConfirmedTiendanubeSale ? paidOrderMatches : undefined,
+          });
+        }
       }
 
       const localPrice = moneyValue(localVariant.precioVenta);

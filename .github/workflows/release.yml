@@ -35,22 +35,18 @@ jobs:
           tagName: ${{ github.ref_name }}
           releaseName: "Inventario App ${{ github.ref_name }}"
           releaseBody: |
-            ## Registro de ventas
-            - Se agrega una ventana de Registro de ventas desde Vista general para revisar ventas del programa y bajas detectadas desde Tiendanube por mes.
-            - La tabla muestra origen, fecha, producto, variante, cantidad, total y permite guardar comentarios por registro.
-            - El selector mensual permite filtrar el historial sin modificar inventario ni sincronizacion.
+            ## Sincronizacion Tiendanube
+            - Las ventas de Tiendanube ahora se tratan como venta aplicable solo cuando el pago figura confirmado como paid.
+            - Las ordenes pendientes, autorizadas, abandonadas, anuladas o reembolsadas no descuentan stock local.
+            - Si Tiendanube baja stock por una orden no pagada, el programa deja aviso en el registro de sincronizacion y espera confirmacion de pago.
 
-            ## Exportacion Excel
-            - Se corrige el boton Excel para guardar el archivo con el dialogo nativo de Windows.
-            - El archivo se genera en formato CSV compatible con Excel, incluyendo totales del mes y comentarios.
-
-            ## Sincronizacion y stock
-            - Las ventas detectadas desde Tiendanube quedan registradas como salidas de venta para mejorar la trazabilidad mensual.
-            - Se mantiene separado el flujo Tiendanube al programa y programa a Tiendanube para no aplicar cambios sin revision cuando corresponda.
+            ## Proteccion de stock
+            - Evita descontar productos en el programa cuando el cliente deja, rechaza o no concreta una compra en Tiendanube.
+            - Las diferencias que no coinciden exactamente con ventas pagadas quedan como revision de stock, no como venta confirmada.
 
             ## Importante
             - Esta actualizacion no elimina ni reinicia la base local del cliente.
-            - Antes de instalar se recomienda conservar un respaldo reciente de la base de datos local.
-          releaseDraft: true
+            - Se mantiene el flujo de revision antes de aplicar cambios desde Tiendanube.
+          releaseDraft: false
           prerelease: false
           uploadUpdaterJson: true

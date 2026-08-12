@@ -407,6 +407,48 @@ describe("revisarCambiosTiendanube", () => {
     expect(mockAplicarPrecioDesdeTiendanube).not.toHaveBeenCalled();
   });
 
+  it("no descuenta stock local por orden Tiendanube pendiente o no pagada", async () => {
+    localStorage.setItem("tiendanube_credentials", JSON.stringify({ accessToken: "token", userId: "123" }));
+    const logs: string[] = [];
+    mockFetch
+      .mockResolvedValueOnce({ ok: true, status: 200, statusText: "OK", json: async () => [] })
+      .mockResolvedValueOnce({ ok: true, status: 200, statusText: "OK", json: async () => [] })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        statusText: "OK",
+        json: async () => [{
+          id: 10,
+          name: { es: "Perfume" },
+          description: { es: "" },
+          variants: [{ id: 20, product_id: 10, price: "100", stock: 3, sku: "SKU-1", barcode: null, values: [{ es: "100 ml" }] }],
+        }],
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        statusText: "OK",
+        json: async () => [{
+          id: 500,
+          number: 101,
+          status: "open",
+          payment_status: "pending",
+          total: "200",
+          created_at: "2026-07-20T10:00:00Z",
+          products: [{ product_id: 10, variant_id: 20, quantity: 2 }],
+        }],
+      });
+    mockUpsertCategorias.mockResolvedValue(new Map());
+    mockGetCatalogoProductos.mockResolvedValue([{ inventarioId: 7, productoId: 1, nombre: "Perfume", descripcion: "", categoria: null, marca: null, notas: null, imagenPathLocal: null, imagenUrl: null, seoTitulo: null, seoDescripcion: null, tags: null, publicado: 1, tnProductId: 10, tnUpdatedAt: "2026-07-24T10:00:00Z", tnVariantId: 20, variante: "100 ml", capacidadMedida: "100 ml", sku: "SKU-1", codigoBarras: null, stockActual: 5, stockMinimo: 0, precioCompra: 0, precioVenta: 100, ubicacion: null, lote: null, vencimiento: null, estado: "ACTIVO", tnCategoryIds: [] }]);
+
+    const preview = await revisarCambiosTiendanube((message) => logs.push(message));
+
+    expect(preview.cambios).toHaveLength(0);
+    expect(preview.signature).toBe("");
+    expect(logs.some((message) => message.includes("pendiente/no pagada"))).toBe(true);
+    expect(mockAplicarStockDesdeTiendanube).not.toHaveBeenCalled();
+  });
+
   it("la revision automatica compara catalogo completo para detectar stock manual sin webhook", async () => {
     localStorage.setItem("tiendanube_credentials", JSON.stringify({ accessToken: "token", userId: "123" }));
     localStorage.setItem("tiendanube_auto_check_since", "2026-07-20T10:00:00.000Z");
