@@ -71,14 +71,17 @@ describe("ventas múltiples", () => {
     expect(mockDb.execute).toHaveBeenCalledWith(expect.stringContaining("venta_registro_comentarios"), ["PROGRAMA:1", "Entregado con bolsa"]);
   });
   it("devuelve el resumen y detalle del día por medio de pago", async () => {
-    mockDb.select
-      .mockResolvedValueOnce([{ total: 450, unidades: 3, operaciones: 2, efectivo: 200, transferencia: 250, tarjeta: 0, otro: 0 }])
-      .mockResolvedValueOnce([{ ventaId: 44, numero: "V-1", fecha: "2026-07-06 10:30:00", producto: "Perfume", variante: "100 ml", cantidad: 1, precioUnitario: 250, subtotal: 250, medioPago: "TRANSFERENCIA" }]);
+    mockDb.select.mockResolvedValueOnce([
+      { ventaId: 44, numero: "V-1", fecha: "2026-07-06 10:30:00", origen: "PROGRAMA", producto: "Perfume", variante: "100 ml", cantidad: 1, precioUnitario: 250, subtotal: 250, medioPago: "TRANSFERENCIA" },
+      { ventaId: -9, numero: "Tiendanube #101", fecha: "2026-07-06 11:00:00", origen: "TIENDANUBE", producto: "Perfume TN", variante: "50 ml", cantidad: 2, precioUnitario: 100, subtotal: 200, medioPago: "TIENDANUBE" },
+    ]);
 
     const result = await getResumenVentasDia("2026-07-06");
 
     expect(result.total).toBe(450);
     expect(result.transferencia).toBe(250);
-    expect(result.detalles).toHaveLength(1);
+    expect(result.tiendanube).toBe(200);
+    expect(result.detalles).toHaveLength(2);
+    expect(mockDb.select).toHaveBeenCalledWith(expect.stringContaining("movimientos_stock"), ["2026-07-06"]);
   });
 });

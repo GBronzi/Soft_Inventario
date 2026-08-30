@@ -324,7 +324,7 @@ export function Tiendanube() {
                   <p className="text-sm text-muted-foreground leading-relaxed">
                     Vincula la tienda para revisar cambios, importar productos nuevos o subir stock local a Tiendanube.
                   </p>
-                  <Button onClick={handleConnect} disabled={isLinking} className="w-full h-14 rounded-2xl bg-[#002D45] text-white hover:bg-[#002D45]/90 font-black shadow-xl gap-2 text-base">
+                  <Button onClick={handleConnect} disabled={isLinking} className="tiendanube-primary-button w-full h-14 rounded-2xl bg-[#002D45] text-white hover:bg-[#002D45]/90 font-black shadow-xl gap-2 text-base">
                     {isLinking ? <><Loader2 className="size-5 animate-spin" /> Esperando autorización...</> : <><ExternalLink className="size-5" /> {hasCredentials ? "Volver a vincular" : "Vincular con Tiendanube"}</>}
                   </Button>
                   {hasCredentials && <Button variant="ghost" onClick={handleDisconnect} className="w-full text-rose-500 font-bold">Limpiar credenciales locales</Button>}
@@ -362,7 +362,7 @@ export function Tiendanube() {
               {status.connected ? (
                 <>
                   <div className="grid gap-3 md:grid-cols-2">
-                    <Button onClick={handleReview} disabled={isReviewing || isApplying || isSyncing} className="h-14 rounded-2xl bg-[#002D45] text-white font-black hover:bg-[#002D45]/90 shadow-xl gap-3 border-none">
+                    <Button onClick={handleReview} disabled={isReviewing || isApplying || isSyncing} className="tiendanube-primary-button h-14 rounded-2xl bg-[#002D45] text-white font-black hover:bg-[#002D45]/90 shadow-xl gap-3 border-none">
                       {isReviewing ? <Loader2 className="size-5 animate-spin" /> : <SearchCheck className="size-5" />}
                       {isReviewing ? "Buscando cambios..." : "Buscar cambios de Tiendanube"}
                     </Button>
@@ -380,7 +380,7 @@ export function Tiendanube() {
                           <input type="checkbox" checked={pollConfig.enabled} onChange={(e) => handlePollToggle(e.target.checked)} className="size-5 accent-emerald-500" />
                           {pollConfig.enabled ? "Activada" : "Desactivada"}
                         </label>
-                        <select value={pollConfig.intervalSec} onChange={(e) => handleIntervalChange(Number(e.target.value))} className="h-10 rounded-xl border border-border/50 bg-background/50 px-3 text-sm outline-none focus:ring-2 focus:ring-primary/20">
+                        <select value={pollConfig.intervalSec} onChange={(e) => handleIntervalChange(Number(e.target.value))} className="liquid-select h-10 rounded-xl border border-border/50 bg-background/50 px-3 text-sm outline-none focus:ring-2 focus:ring-primary/20">
                           <option value={60}>60 segundos</option>
                           <option value={120}>120 segundos</option>
                           <option value={300}>5 minutos</option>

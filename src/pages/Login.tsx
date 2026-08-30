@@ -82,7 +82,7 @@ export function Login({ status, onLogin, onSetup, onSetupComplete, onRecover, on
             <Button type="button" variant="outline" className="h-11 w-full border-white/15 bg-white/5 text-white hover:bg-white/10" onClick={() => { void navigator.clipboard.writeText(initialRecoveryCode); setRecoveryCodeCopied(true); }}>
               <Copy className="mr-2 size-4" /> {recoveryCodeCopied ? "Código copiado" : "Copiar código"}
             </Button>
-            <Button type="button" className="h-11 w-full bg-cyan-200 text-slate-950 hover:bg-cyan-100" onClick={onSetupComplete}>
+            <Button type="button" className="login-submit-button h-11 w-full" onClick={onSetupComplete}>
               <LogIn className="mr-2 size-4" /> Ya guardé el código e ingresar
             </Button>
           </div>
@@ -161,10 +161,19 @@ export function Login({ status, onLogin, onSetup, onSetupComplete, onRecover, on
             <span>Contraseña</span>
             <div className="relative">
               <LockKeyhole className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-white/40" />
-              <Input type={showPassword ? "text" : "password"} autoComplete={setupMode || recoveryMode || supportMode ? "new-password" : "current-password"} value={password} onChange={(event) => setPassword(event.target.value)} className="h-11 border-white/15 bg-white/5 px-9 text-white" required minLength={8} />
-              <Button type="button" variant="ghost" size="icon" onClick={() => setShowPassword((value) => !value)} aria-label={showPassword ? "Ocultar contraseña" : "Mostrar contraseña"} title={showPassword ? "Ocultar contraseña" : "Mostrar contraseña"} className="absolute right-0 top-1/2 -translate-y-1/2 text-white/55 hover:bg-white/10 hover:text-white">
-                {showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
-              </Button>
+              <Input type={showPassword ? "text" : "password"} autoComplete={setupMode || recoveryMode || supportMode ? "new-password" : "current-password"} value={password} onChange={(event) => setPassword(event.target.value)} className="h-11 border-white/15 bg-white/5 pl-9 pr-14 text-white" required minLength={8} />
+              <span className="pointer-events-none absolute inset-y-0 right-2 z-20 flex items-center">
+                <button
+                  type="button"
+                  onPointerDown={(event) => event.preventDefault()}
+                  onClick={() => setShowPassword((value) => !value)}
+                  aria-label={showPassword ? "Ocultar contraseña" : "Mostrar contraseña"}
+                  title={showPassword ? "Ocultar contraseña" : "Mostrar contraseña"}
+                  className="password-toggle-button pointer-events-auto inline-flex items-center justify-center"
+                >
+                  {showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+                </button>
+              </span>
             </div>
           </label>
 
@@ -177,7 +186,7 @@ export function Login({ status, onLogin, onSetup, onSetupComplete, onRecover, on
 
           {error && <p role="alert" className="rounded-md border border-red-400/30 bg-red-400/10 px-3 py-2 text-sm text-red-100">{error}</p>}
 
-          <Button type="submit" className="h-11 w-full bg-cyan-200 text-slate-950 hover:bg-cyan-100" disabled={loading || username.trim().length < 3 || password.length < 8 || (recoveryMode && !recoveryCode.trim()) || (supportMode && !supportResponse.trim())}>
+          <Button type="submit" className="login-submit-button h-11 w-full" disabled={loading || username.trim().length < 3 || password.length < 8 || (recoveryMode && !recoveryCode.trim()) || (supportMode && !supportResponse.trim())}>
             {loading ? <LoaderCircle className="mr-2 size-4 animate-spin" /> : <LogIn className="mr-2 size-4" />}
             {supportMode ? "Validar y restablecer" : recoveryMode ? "Restablecer e ingresar" : setupMode ? "Crear acceso" : "Ingresar"}
           </Button>

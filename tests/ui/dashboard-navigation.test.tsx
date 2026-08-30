@@ -148,19 +148,10 @@ describe("Dashboard UI", () => {
     });
   });
 
-  it("navega desde la acción rápida a una venta rápida local", async () => {
-    const router = renderDashboard();
+  it("no muestra la acción rápida de venta rápida local", () => {
+    renderDashboard();
 
-    fireEvent.click(screen.getByRole("button", { name: "Venta rápida local" }));
-
-    await waitFor(() => {
-      expect(router.state.location.pathname).toBe("/movimientos");
-
-      const params = new URLSearchParams(router.state.location.search);
-      expect(params.get("presetTipoMovimiento")).toBe("SALIDA");
-      expect(params.get("presetMotivo")).toBe("Venta rápida local");
-      expect(params.get("presetReferencia")).toBe("VENTA_RAPIDA_LOCAL");
-    });
+    expect(screen.queryByRole("button", { name: "Venta rápida local" })).toBeNull();
   });
 
   it("navega desde alertas de stock al historial filtrado de la variante", async () => {

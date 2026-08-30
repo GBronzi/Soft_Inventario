@@ -7,14 +7,13 @@ import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { getResumenMensualMovimientos, MONTHLY_SALES_UPDATED_EVENT } from "@/database/queries";
+import { localDateKey, localMonthKey } from "@/lib/datetime";
 import type { GastoDetalle, GastoRegistro } from "@/types";
 
 const STORAGE_KEY = "soft_inventario_gastos";
 
 function getTodayDate() {
-  const now = new Date();
-  const localTime = new Date(now.getTime() - now.getTimezoneOffset() * 60_000);
-  return localTime.toISOString().slice(0, 10);
+  return localDateKey();
 }
 
 function createId() {
@@ -109,7 +108,7 @@ export function Gastos() {
   const [gastos, setGastos] = useState<GastoRegistro[]>([]);
   const [ventasMensuales, setVentasMensuales] = useState<Record<string, number>>({});
   const [salesRefresh, setSalesRefresh] = useState(0);
-  const [selectedMonth, setSelectedMonth] = useState(() => new Date().toISOString().slice(0, 7));
+  const [selectedMonth, setSelectedMonth] = useState(() => localMonthKey());
   const [form, setForm] = useState({ nombre: "", fecha: getTodayDate(), descripcion: "" });
   const [items, setItems] = useState<GastoDetalle[]>([{ id: createId(), concepto: "", valor: 0 }]);
   const [editingId, setEditingId] = useState<string | null>(null);

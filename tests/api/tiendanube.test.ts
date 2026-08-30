@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { mockAplicarPrecioDesdeTiendanube, mockAplicarStockDesdeTiendanube, mockGetCatalogoProductos, mockGetCategoriasArbol, mockFetch, mockSetTnUpdatedAt, mockUpsertCategorias, mockUpsertProductoDesdeTiendanube } = vi.hoisted(() => ({
+const { mockAplicarPrecioDesdeTiendanube, mockAplicarStockDesdeTiendanube, mockGetCatalogoProductos, mockGetCategoriasArbol, mockFetch, mockSetTnUpdatedAt, mockUpsertCategorias, mockUpsertProductoDesdeTiendanube, mockQueueDb, pendingQueue } = vi.hoisted(() => ({
   mockAplicarPrecioDesdeTiendanube: vi.fn(),
   mockAplicarStockDesdeTiendanube: vi.fn(),
   mockGetCatalogoProductos: vi.fn(),
@@ -9,6 +9,38 @@ const { mockAplicarPrecioDesdeTiendanube, mockAplicarStockDesdeTiendanube, mockG
   mockSetTnUpdatedAt: vi.fn(),
   mockUpsertCategorias: vi.fn(),
   mockUpsertProductoDesdeTiendanube: vi.fn(),
+  pendingQueue: [] as Array<{ id: number; changeKey: string; payloadJson: string; productPayloadJson: string | null; estado: string; detectadoEn: string }>,
+  mockQueueDb: {
+    execute: vi.fn(async (query: string, params?: unknown[]) => {
+      if (query.includes("INSERT OR IGNORE INTO tiendanube_cambios_pendientes")) {
+        const changeKey = String(params?.[0] ?? "");
+        if (!pendingQueue.some((row) => row.changeKey === changeKey)) {
+          pendingQueue.push({
+            id: pendingQueue.length + 1,
+            changeKey,
+            payloadJson: String(params?.[4] ?? "{}"),
+            productPayloadJson: params?.[5] == null ? null : String(params[5]),
+            estado: "PENDIENTE",
+            detectadoEn: "2026-07-20 10:00:00",
+          });
+        }
+      }
+      if (query.includes("UPDATE tiendanube_cambios_pendientes")) {
+        const id = Number(params?.[1] ?? 0);
+        const row = pendingQueue.find((item) => item.id === id);
+        if (row) row.estado = String(params?.[0] ?? row.estado);
+      }
+      return { rowsAffected: 1 };
+    }),
+    select: vi.fn(async () => pendingQueue
+      .filter((row) => row.estado === "PENDIENTE")
+      .map((row) => ({
+        id: row.id,
+        payloadJson: row.payloadJson,
+        productPayloadJson: row.productPayloadJson,
+        detectadoEn: row.detectadoEn,
+      }))),
+  },
 }));
 
 vi.mock("@tauri-apps/plugin-http", () => ({
@@ -25,6 +57,10 @@ vi.mock("@/database/queries", () => ({
   upsertProductoDesdeTiendanube: mockUpsertProductoDesdeTiendanube,
 }));
 
+vi.mock("@/database/db", () => ({
+  getDatabase: vi.fn(async () => mockQueueDb),
+}));
+
 import { aplicarCambiosSeleccionadosTiendanube, buildTiendanubeProductMetadataPayload, buildTiendanubeProductPayload, buildTiendanubeVariantPayload, buildTiendanubeSyncFeedbackMessage, enviarDatosLocalesSeleccionadosATiendanube, pushProductoATiendanube, resolveTiendanubeCategoryIds, resolveTiendanubeProductTarget, revisarCambiosTiendanube, runIncrementalSync, validateTiendanubeConnection } from "@/api/tiendanube";
 
 const storage = new Map<string, string>();
@@ -33,6 +69,12 @@ vi.stubGlobal("localStorage", {
   setItem: (key: string, value: string) => { storage.set(key, value); },
   removeItem: (key: string) => { storage.delete(key); },
   clear: () => { storage.clear(); },
+});
+
+beforeEach(() => {
+  pendingQueue.length = 0;
+  mockQueueDb.execute.mockClear();
+  mockQueueDb.select.mockClear();
 });
 
 describe("buildTiendanubeProductMetadataPayload", () => {
@@ -356,9 +398,10 @@ describe("revisarCambiosTiendanube", () => {
     const preview = await revisarCambiosTiendanube(() => undefined);
 
     expect(preview.cambios).toHaveLength(1);
-    expect(preview.cambios[0]).toMatchObject({ type: "IMAGEN", id: "imagen-10" });
+    expect(preview.cambios[0]).toMatchObject({ type: "IMAGEN" });
+    expect(preview.cambios[0].id).toContain("imagen-10");
 
-    await aplicarCambiosSeleccionadosTiendanube(preview, ["imagen-10"], () => undefined);
+    await aplicarCambiosSeleccionadosTiendanube(preview, [preview.cambios[0].id], () => undefined);
 
     expect(mockSetTnUpdatedAt).toHaveBeenCalledWith(10, "2026-07-25T10:00:00Z", "https://cdn.tn/perfume.jpg");
     expect(mockUpsertProductoDesdeTiendanube).not.toHaveBeenCalled();
@@ -447,6 +490,95 @@ describe("revisarCambiosTiendanube", () => {
     expect(preview.signature).toBe("");
     expect(logs.some((message) => message.includes("pendiente/no pagada"))).toBe(true);
     expect(mockAplicarStockDesdeTiendanube).not.toHaveBeenCalled();
+  });
+
+  it("preserva el ajuste remoto previo cuando llega una venta Tiendanube pagada", async () => {
+    localStorage.setItem("tiendanube_credentials", JSON.stringify({ accessToken: "token", userId: "123" }));
+    mockFetch
+      .mockResolvedValueOnce({ ok: true, status: 200, statusText: "OK", json: async () => [] })
+      .mockResolvedValueOnce({ ok: true, status: 200, statusText: "OK", json: async () => [] })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        statusText: "OK",
+        json: async () => [{
+          id: 10,
+          name: { es: "Perfume" },
+          description: { es: "" },
+          variants: [{ id: 20, product_id: 10, price: "100", stock: 9, sku: "SKU-1", barcode: null, values: [{ es: "100 ml" }] }],
+        }],
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        statusText: "OK",
+        json: async () => [{
+          id: 500,
+          number: 101,
+          status: "open",
+          payment_status: "paid",
+          total: "100",
+          created_at: "2026-07-20T10:00:00Z",
+          products: [{ product_id: 10, variant_id: 20, quantity: 1 }],
+        }],
+      });
+    mockUpsertCategorias.mockResolvedValue(new Map());
+    mockGetCatalogoProductos.mockResolvedValue([{ inventarioId: 7, productoId: 1, nombre: "Perfume", descripcion: "", categoria: null, marca: null, notas: null, imagenPathLocal: null, imagenUrl: null, seoTitulo: null, seoDescripcion: null, tags: null, publicado: 1, tnProductId: 10, tnUpdatedAt: "2026-07-24T10:00:00Z", tnVariantId: 20, variante: "100 ml", capacidadMedida: "100 ml", sku: "SKU-1", codigoBarras: null, stockActual: 5, stockMinimo: 0, precioCompra: 0, precioVenta: 100, ubicacion: null, lote: null, vencimiento: null, estado: "ACTIVO", tnCategoryIds: [] }]);
+
+    const preview = await revisarCambiosTiendanube(() => undefined);
+
+    expect(preview.cambios).toHaveLength(1);
+    expect(preview.cambios[0]).toMatchObject({ type: "VENTA_TN", localStock: 5, remoteStock: 9, stockDelta: 4 });
+    expect(preview.cambios[0].detalle).toContain("ajuste previo pendiente");
+
+    const result = await aplicarCambiosSeleccionadosTiendanube(preview, [preview.cambios[0].id], () => undefined);
+
+    expect(result).toEqual({ aplicados: 1, errores: 0 });
+    expect(mockAplicarStockDesdeTiendanube).toHaveBeenCalledTimes(2);
+    expect(mockAplicarStockDesdeTiendanube).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      inventarioId: 7,
+      stock: 10,
+      referencia: "TN-P10-V20-PREVENTA",
+    }));
+    expect(mockAplicarStockDesdeTiendanube).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      inventarioId: 7,
+      stock: 9,
+      tipoMovimiento: "SALIDA",
+      concepto: "VENTA",
+      referencia: "Tiendanube #101",
+      importeTotal: 100,
+    }));
+  });
+
+  it("mantiene cambios pendientes anteriores cuando llega otro cambio del mismo producto", async () => {
+    localStorage.setItem("tiendanube_credentials", JSON.stringify({ accessToken: "token", userId: "123" }));
+    const productWithStock = (stock: number) => ({
+      id: 10,
+      name: { es: "Perfume" },
+      description: { es: "" },
+      variants: [{ id: 20, product_id: 10, price: "100", stock, sku: "SKU-1", barcode: null, values: [{ es: "100 ml" }] }],
+    });
+    mockFetch
+      .mockResolvedValueOnce({ ok: true, status: 200, statusText: "OK", json: async () => [] })
+      .mockResolvedValueOnce({ ok: true, status: 200, statusText: "OK", json: async () => [] })
+      .mockResolvedValueOnce({ ok: true, status: 200, statusText: "OK", json: async () => [productWithStock(8)] })
+      .mockResolvedValueOnce({ ok: true, status: 200, statusText: "OK", json: async () => [] })
+      .mockResolvedValueOnce({ ok: true, status: 200, statusText: "OK", json: async () => [] })
+      .mockResolvedValueOnce({ ok: true, status: 200, statusText: "OK", json: async () => [] })
+      .mockResolvedValueOnce({ ok: true, status: 200, statusText: "OK", json: async () => [productWithStock(10)] })
+      .mockResolvedValueOnce({ ok: true, status: 200, statusText: "OK", json: async () => [] });
+    mockUpsertCategorias.mockResolvedValue(new Map());
+    mockGetCatalogoProductos.mockResolvedValue([{ inventarioId: 7, productoId: 1, nombre: "Perfume", descripcion: "", categoria: null, marca: null, notas: null, imagenPathLocal: null, imagenUrl: null, seoTitulo: null, seoDescripcion: null, tags: null, publicado: 1, tnProductId: 10, tnUpdatedAt: "2026-07-24T10:00:00Z", tnVariantId: 20, variante: "100 ml", capacidadMedida: "100 ml", sku: "SKU-1", codigoBarras: null, stockActual: 5, stockMinimo: 0, precioCompra: 0, precioVenta: 100, ubicacion: null, lote: null, vencimiento: null, estado: "ACTIVO", tnCategoryIds: [] }]);
+
+    await revisarCambiosTiendanube(() => undefined);
+    const secondPreview = await revisarCambiosTiendanube(() => undefined);
+
+    expect(secondPreview.cambios).toHaveLength(2);
+    expect(secondPreview.cambios.map((cambio) => cambio.remoteStock)).toEqual([8, 10]);
+    expect(new Set(secondPreview.cambios.map((cambio) => cambio.id)).size).toBe(2);
+
+    await expect(aplicarCambiosSeleccionadosTiendanube(secondPreview, [secondPreview.cambios[1].id], () => undefined))
+      .rejects.toThrow("cambios anteriores pendientes");
   });
 
   it("la revision automatica compara catalogo completo para detectar stock manual sin webhook", async () => {

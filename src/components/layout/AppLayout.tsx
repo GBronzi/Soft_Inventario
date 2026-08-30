@@ -5,6 +5,7 @@ import { Outlet, useNavigate } from "react-router-dom";
 import { AppSidebar } from "@/components/layout/AppSidebar";
 import { Topbar } from "@/components/layout/Topbar";
 import { UpdateNotifier } from "@/components/shared/UpdateNotifier";
+import { Button } from "@/components/ui/button";
 import {
   TIENDANUBE_CONNECTION_EVENT,
   TIENDANUBE_PENDING_CHANGES_EVENT,
@@ -57,21 +58,24 @@ export function AppLayout() {
                 <p className="text-sm font-bold">{connectionIssue.message}</p>
               </div>
               <div className="flex items-center gap-2">
-                <button
+                <Button
                   type="button"
+                  variant="outline"
                   onClick={() => { setConnectionIssue(null); navigate("/tiendanube"); }}
-                  className={`h-9 rounded-xl px-4 text-xs font-black uppercase tracking-wide text-white ${connectionIssue.level === "auth" ? "bg-rose-600 hover:bg-rose-700" : "bg-amber-600 hover:bg-amber-700"}`}
+                  className={`h-9 px-4 text-xs font-black uppercase tracking-wide ${connectionIssue.level === "auth" ? "border-rose-500/30 text-rose-700" : "border-amber-500/30 text-amber-700"}`}
                 >
                   {connectionIssue.level === "auth" ? "Revincular" : "Revisar"}
-                </button>
-                <button
+                </Button>
+                <Button
                   type="button"
+                  variant="ghost"
+                  size="icon"
                   aria-label="Cerrar aviso de conexión Tiendanube"
                   onClick={() => setConnectionIssue(null)}
-                  className="flex size-9 items-center justify-center rounded-xl border border-current/20 hover:bg-white/20"
+                  className="size-9 border-current/20"
                 >
                   <X className="size-4" />
-                </button>
+                </Button>
               </div>
             </div>
           </div>
@@ -86,21 +90,24 @@ export function AppLayout() {
                 </p>
               </div>
               <div className="flex items-center gap-2">
-                <button
+                <Button
                   type="button"
+                  variant="outline"
                   onClick={() => { setPendingTiendanubeChanges(null); navigate("/tiendanube"); }}
-                  className="h-9 rounded-xl bg-amber-600 px-4 text-xs font-black uppercase tracking-wide text-white hover:bg-amber-700"
+                  className="h-9 border-amber-500/30 px-4 text-xs font-black uppercase tracking-wide text-amber-700"
                 >
                   Abrir sincronización
-                </button>
-                <button
+                </Button>
+                <Button
                   type="button"
+                  variant="ghost"
+                  size="icon"
                   aria-label="Cerrar aviso de Tiendanube"
                   onClick={() => setPendingTiendanubeChanges(null)}
-                  className="flex size-9 items-center justify-center rounded-xl border border-amber-500/30 hover:bg-amber-500/10"
+                  className="size-9 border-amber-500/30"
                 >
                   <X className="size-4" />
-                </button>
+                </Button>
               </div>
             </div>
           </div>

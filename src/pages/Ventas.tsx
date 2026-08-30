@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { getCatalogoProductos } from "@/database/queries";
 import { registrarVenta } from "@/database/ventas";
 import { pushInventarioIdATiendanube } from "@/api/tiendanube";
+import { updateLiquidGlassPointer } from "@/lib/liquidGlass";
 import type { CatalogoItem, MedioPago } from "@/types";
 
 type LineaVenta = CatalogoItem & { cantidad: number; precioAplicado: number };
@@ -129,7 +130,7 @@ export function Ventas() {
                 <Input ref={searchRef} autoFocus value={search} onChange={(event) => setSearch(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && results.length) addItem(results[0]); }} placeholder="Buscar perfume, SKU o escanear código" className="h-12 pl-10 pr-10" />
                 <Barcode className="pointer-events-none absolute right-3 top-1/2 size-5 -translate-y-1/2 text-primary" />
               </div>
-              {results.length > 0 && <div className="mt-2 divide-y overflow-hidden rounded-lg border">{results.map((item) => <button key={item.inventarioId} type="button" onClick={() => addItem(item)} className="flex w-full items-center justify-between gap-4 px-4 py-3 text-left hover:bg-muted/60 disabled:opacity-50" disabled={item.stockActual <= 0}><span className="min-w-0"><span className="block truncate text-sm font-bold">{item.nombre}</span><span className="block truncate text-xs text-muted-foreground">{variantLabel(item)} · SKU {item.sku || "sin SKU"} · Stock {item.stockActual}</span></span><span className="shrink-0 text-sm font-black">${item.precioVenta.toLocaleString("es-AR")}</span></button>)}</div>}
+              {results.length > 0 && <div className="mt-2 divide-y overflow-hidden rounded-lg border">{results.map((item) => <button key={item.inventarioId} type="button" onPointerMove={updateLiquidGlassPointer} onClick={() => addItem(item)} className="liquid-choice flex w-full items-center justify-between gap-4 px-4 py-3 text-left disabled:opacity-50" disabled={item.stockActual <= 0}><span className="min-w-0"><span className="block truncate text-sm font-bold">{item.nombre}</span><span className="block truncate text-xs text-muted-foreground">{variantLabel(item)} · SKU {item.sku || "sin SKU"} · Stock {item.stockActual}</span></span><span className="shrink-0 text-sm font-black">${item.precioVenta.toLocaleString("es-AR")}</span></button>)}</div>}
             </CardContent>
           </Card>
 
@@ -144,7 +145,7 @@ export function Ventas() {
         <Card className="h-fit xl:sticky xl:top-6">
           <CardHeader><CardTitle className="text-base">Cobro y confirmación</CardTitle><CardDescription>La venta descontará el stock de todos los productos.</CardDescription></CardHeader>
           <CardContent className="space-y-5">
-            <div className="grid grid-cols-2 gap-2">{PAYMENT_OPTIONS.map((option) => { const Icon = option.icon; return <button key={option.value} type="button" onClick={() => setMedioPago(option.value)} className={`flex h-16 flex-col items-center justify-center gap-1 rounded-md border text-xs font-bold ${medioPago === option.value ? "border-primary bg-primary/10 text-primary" : "hover:bg-muted"}`}><Icon className="size-4" />{option.label}</button>; })}</div>
+            <div className="grid grid-cols-2 gap-2">{PAYMENT_OPTIONS.map((option) => { const Icon = option.icon; return <button key={option.value} type="button" onPointerMove={updateLiquidGlassPointer} onClick={() => setMedioPago(option.value)} className={`liquid-choice flex h-16 flex-col items-center justify-center gap-1 rounded-md border text-xs font-bold ${medioPago === option.value ? "border-primary text-primary ring-1 ring-primary/20" : "text-muted-foreground"}`}><Icon className="size-4" />{option.label}</button>; })}</div>
             <div><label className="mb-1 block text-xs font-bold text-muted-foreground">Nota opcional</label><Input value={nota} onChange={(event) => setNota(event.target.value)} placeholder="Cliente o referencia" /></div>
             <div className="space-y-2 border-y py-4"><div className="flex justify-between text-sm"><span className="text-muted-foreground">Unidades</span><strong>{unidades}</strong></div><div className="flex items-end justify-between"><span className="font-bold">Total</span><strong className="text-2xl">${total.toLocaleString("es-AR")}</strong></div></div>
             <Button type="button" className="h-12 w-full" disabled={!cart.length || saving} onClick={() => void confirmSale()}><ShoppingCart className="mr-2 size-4" />{saving ? "Registrando venta..." : "Confirmar venta"}</Button>

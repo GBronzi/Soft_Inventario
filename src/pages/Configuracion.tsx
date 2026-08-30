@@ -59,6 +59,8 @@ export function Configuracion() {
   const [updateStatus, setUpdateStatus] = useState<string | null>(null);
   const [checkingUpdate, setCheckingUpdate] = useState(false);
   const [updateProgress, setUpdateProgress] = useState(0);
+  const [backupStatus, setBackupStatus] = useState<string | null>(null);
+  const [backupRunning, setBackupRunning] = useState(false);
 
   const loadData = async () => {
     try {
@@ -125,17 +127,20 @@ export function Configuracion() {
   }
 
   async function handleManualBackup() {
-    setUpdateStatus("Creando respaldo...");
+    setBackupRunning(true);
+    setBackupStatus("Creando respaldo...");
     try {
       const path = await createPreUpdateBackup(appVersion);
-      setUpdateStatus(`Respaldo creado en: ${path}`);
+      setBackupStatus(`Respaldo creado en: ${path}`);
     } catch (error) {
-      setUpdateStatus(`Error al crear respaldo: ${String(error)}`);
+      setBackupStatus(`Error al crear respaldo: ${String(error)}`);
+    } finally {
+      setBackupRunning(false);
     }
   }
 
   async function handleRestoreBackup() {
-    setUpdateStatus(null);
+    setBackupStatus(null);
     try {
       const selected = await open({
         multiple: false,
@@ -146,10 +151,10 @@ export function Configuracion() {
         "La aplicación se reiniciará y reemplazará la base actual por este respaldo. Antes se creará una copia automática de seguridad. ¿Desea continuar?",
       );
       if (!confirmed) return;
-      setUpdateStatus("Validando respaldo y preparando restauración...");
+      setBackupStatus("Validando respaldo y preparando restauración...");
       await invoke("restore_database", { sourcePath: selected });
     } catch (error) {
-      setUpdateStatus(`Error al restaurar respaldo: ${String(error)}`);
+      setBackupStatus(`Error al restaurar respaldo: ${String(error)}`);
     }
   }
 
@@ -324,7 +329,7 @@ export function Configuracion() {
                        <Globe className="size-3" /> Moneda del Sistema
                     </label>
                     <select 
-                      className="h-12 w-full rounded-xl border border-border/50 bg-background/50 px-4 py-2 text-sm font-black focus:ring-2 focus:ring-primary/20 appearance-none outline-none"
+                      className="liquid-select h-12 w-full rounded-xl border border-border/50 bg-background/50 px-4 py-2 text-sm font-black focus:ring-2 focus:ring-primary/20 appearance-none outline-none"
                       value={form.moneda}
                       onChange={e => setForm({...form, moneda: e.target.value.toUpperCase()})}
                     >
@@ -375,7 +380,7 @@ export function Configuracion() {
               <label className="space-y-2 text-sm font-semibold">
                 <span>Tipo de pantalla</span>
                 <select
-                  className="h-11 w-full rounded-xl border border-border/50 bg-background/50 px-3 py-2 text-sm font-bold outline-none focus:ring-2 focus:ring-primary/20"
+                  className="liquid-select h-11 w-full rounded-xl border border-border/50 bg-background/50 px-3 py-2 text-sm font-bold outline-none focus:ring-2 focus:ring-primary/20"
                   value={uiScale}
                   onChange={(event) => setUiScale(event.target.value as UiScale)}
                 >
@@ -388,7 +393,7 @@ export function Configuracion() {
                 <p className="text-xs font-black uppercase tracking-widest text-muted-foreground">{selectedScale.label}</p>
                 <p className="mt-1 text-sm text-muted-foreground">{selectedScale.description}</p>
               </div>
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                 {UI_SCALE_OPTIONS.map((option) => (
                   <Button
                     key={option.id}
@@ -474,7 +479,7 @@ export function Configuracion() {
             </CardContent>
           </Card>
 
-          <Card className="border-none shadow-xl bg-primary text-primary-foreground overflow-hidden group">
+          <Card className="liquid-backup-card border-none shadow-xl bg-primary text-primary-foreground overflow-hidden group">
             <CardContent className="p-6 relative">
                <HardDrive className="absolute -right-4 -bottom-4 size-32 opacity-10 group-hover:scale-110 transition-transform" />
                <div className="relative space-y-4">
@@ -482,10 +487,15 @@ export function Configuracion() {
                     <h3 className="font-black text-xl">Backup Local</h3>
                     <p className="text-xs opacity-70">Haz una copia manual de tu base de datos SQLite ahora mismo.</p>
                   </div>
-                  <Button variant="secondary" onClick={() => void handleManualBackup()} className="w-full rounded-xl font-bold h-11 bg-white text-primary hover:bg-white/90 shadow-2xl">
-                    Crear Backup (.db)
+                  {backupStatus && (
+                    <p role="status" className={`rounded-xl border px-3 py-2 text-xs font-semibold ${backupStatus.startsWith("Error") ? "border-rose-300/30 bg-rose-500/10 text-rose-100" : "border-white/20 bg-white/10 text-primary-foreground"}`}>
+                      {backupStatus}
+                    </p>
+                  )}
+                  <Button variant="secondary" onClick={() => void handleManualBackup()} disabled={backupRunning} className="backup-create-button w-full rounded-xl font-bold h-11 bg-white shadow-2xl">
+                    {backupRunning ? "Creando backup..." : "Crear Backup (.db)"}
                   </Button>
-                  <Button variant="outline" onClick={() => void handleRestoreBackup()} className="w-full rounded-xl font-bold h-11 border-white/40 bg-transparent text-white hover:bg-white/10 hover:text-white">
+                  <Button variant="outline" onClick={() => void handleRestoreBackup()} disabled={backupRunning} className="backup-restore-button w-full rounded-xl font-bold h-11 border-current/30 bg-transparent text-primary-foreground hover:bg-white/10 hover:text-primary-foreground">
                     <RotateCcw className="mr-2 size-4" /> Restaurar Backup
                   </Button>
                </div>

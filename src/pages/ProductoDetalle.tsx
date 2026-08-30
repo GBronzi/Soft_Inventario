@@ -36,6 +36,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { getMovimientosByInventarioId, getProductoByInventarioId, getProductoCategorias, getVariantesByProductoId } from "@/database/queries";
+import { formatDatabaseDate, formatDatabaseTime } from "@/lib/datetime";
 import { buildMovimientosRoute, buildRepeatMovimientoRoute, buildVentaRapidaRoute } from "@/lib/movimientos";
 import type { CategoriaRef, MovimientoListado, ProductoDetalle as ProductoDetalleType, ProductoVarianteResumen } from "@/types";
 
@@ -444,8 +445,8 @@ export function ProductoDetalle() {
                               </div>
                            </TableCell>
                            <TableCell className="whitespace-nowrap">
-                              <p className="text-[10px] font-bold opacity-60">{new Date(m.fechaMovimiento).toLocaleDateString()}</p>
-                              <p className="text-[9px] opacity-40">{new Date(m.fechaMovimiento).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
+                              <p className="text-[10px] font-bold opacity-60">{formatDatabaseDate(m.fechaMovimiento)}</p>
+                              <p className="text-[9px] opacity-40">{formatDatabaseTime(m.fechaMovimiento)}</p>
                            </TableCell>
                            <TableCell className="pr-4 text-right">
                               <Button aria-label="Repetir" variant="ghost" size="icon" className="h-7 w-7 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => navigate(buildRepeatMovimientoRoute(m))}>

@@ -166,3 +166,18 @@ CREATE INDEX IF NOT EXISTS idx_plantillas_movimientos_inventario ON plantillas_m
 CREATE INDEX IF NOT EXISTS idx_contactos_nombre ON contactos (nombre, apellidos);
 CREATE INDEX IF NOT EXISTS idx_contactos_email ON contactos (email);
 CREATE INDEX IF NOT EXISTS idx_contactos_telefono ON contactos (telefono);
+
+CREATE TABLE IF NOT EXISTS tiendanube_cambios_pendientes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    change_key TEXT NOT NULL UNIQUE,
+    type TEXT NOT NULL,
+    tn_product_id INTEGER NOT NULL,
+    tn_variant_id INTEGER,
+    payload_json TEXT NOT NULL,
+    product_payload_json TEXT,
+    estado TEXT NOT NULL DEFAULT 'PENDIENTE',
+    detectado_en DATETIME DEFAULT CURRENT_TIMESTAMP,
+    aplicado_en DATETIME
+);
+
+CREATE INDEX IF NOT EXISTS idx_tn_cambios_estado_fecha ON tiendanube_cambios_pendientes (estado, detectado_en);

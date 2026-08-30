@@ -30,6 +30,8 @@ import {
   registrarMovimientoStock,
 } from "@/database/queries";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
+import { formatDatabaseDate, formatDatabaseTime } from "@/lib/datetime";
+import { updateLiquidGlassPointer } from "@/lib/liquidGlass";
 import { CONCEPTOS_POR_TIPO, getConceptoLabel } from "@/lib/movimientos";
 import type { InventarioMovimientoOption, MovimientoConcepto, MovimientoListado, TipoMovimientoStock } from "@/types";
 
@@ -39,7 +41,7 @@ const TYPE_META: Record<TipoMovimientoStock, { label: string; short: string; ico
   AJUSTE: { label: "Ajuste", short: "Corrige diferencias", icon: SlidersHorizontal, tone: "text-amber-600", active: "border-amber-500 bg-amber-500/10 text-amber-700" },
 };
 
-const selectClassName = "h-10 w-full rounded-md border border-border bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-ring/30";
+const selectClassName = "liquid-select h-10 w-full rounded-md border border-border bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-ring/30";
 const PAGE_SIZE = 25;
 const COST_IMPACT_CONCEPTS: MovimientoConcepto[] = ["ROTURA", "FALLA", "VENCIMIENTO", "REGALO_SORTEO", "CAMBIO_GARANTIA", "PERDIDA_FALTANTE"];
 
@@ -227,7 +229,7 @@ export function Movimientos() {
                     <Input aria-label="Buscar producto para movimiento" value={productSearch} onFocus={() => setProductListOpen(true)} onChange={(event) => { setProductSearch(event.target.value); setProductListOpen(true); }} placeholder="Nombre, variante o SKU" className="h-11 pl-9" />
                     {productListOpen && productSearch && (
                       <div className="absolute z-30 mt-1 max-h-72 w-full overflow-y-auto rounded-md border border-border bg-popover shadow-xl">
-                        {productResults.length ? productResults.map((option) => <button type="button" key={option.inventarioId} onClick={() => selectProduct(option)} className="flex w-full items-center justify-between border-b border-border/60 px-3 py-2.5 text-left last:border-0 hover:bg-muted"><span><span className="block text-sm font-semibold">{option.producto}</span><span className="text-xs text-muted-foreground">{option.variante || "Principal"} · {option.sku || "Sin SKU"}</span></span><Badge variant="outline">{option.stockActual} u.</Badge></button>) : <p className="p-4 text-center text-sm text-muted-foreground">Sin coincidencias</p>}
+                        {productResults.length ? productResults.map((option) => <button type="button" key={option.inventarioId} onPointerMove={updateLiquidGlassPointer} onClick={() => selectProduct(option)} className="liquid-choice flex w-full items-center justify-between border-b border-border/60 px-3 py-2.5 text-left last:border-0"><span><span className="block text-sm font-semibold">{option.producto}</span><span className="text-xs text-muted-foreground">{option.variante || "Principal"} · {option.sku || "Sin SKU"}</span></span><Badge variant="outline">{option.stockActual} u.</Badge></button>) : <p className="p-4 text-center text-sm text-muted-foreground">Sin coincidencias</p>}
                       </div>
                     )}
                   </div>
@@ -239,7 +241,7 @@ export function Movimientos() {
                     {(Object.keys(TYPE_META) as TipoMovimientoStock[]).map((type) => {
                       const meta = TYPE_META[type];
                       const Icon = meta.icon;
-                      return <button key={type} type="button" onClick={() => selectType(type)} className={`flex h-16 flex-col items-center justify-center rounded-md border text-xs font-bold transition-colors ${form.tipoMovimiento === type ? meta.active : "border-border bg-background text-muted-foreground hover:bg-muted"}`}><Icon className="mb-1 size-4" />{meta.label}</button>;
+                      return <button key={type} type="button" onPointerMove={updateLiquidGlassPointer} onClick={() => selectType(type)} className={`liquid-choice flex h-16 flex-col items-center justify-center rounded-md border text-xs font-bold transition-colors ${form.tipoMovimiento === type ? `${meta.active} ring-1 ring-current/15` : "border-border text-muted-foreground"}`}><Icon className="mb-1 size-4" />{meta.label}</button>;
                     })}
                   </div>
                   <label className="block space-y-1.5 text-sm font-semibold"><span>Concepto</span><select aria-label="Concepto del movimiento" className={selectClassName} value={form.concepto} onChange={(event) => setForm({ ...form, concepto: event.target.value as MovimientoConcepto, importeTotal: "" })}>{CONCEPTOS_POR_TIPO[form.tipoMovimiento].map((option) => <option value={option.value} key={option.value}>{option.label}</option>)}</select></label>
@@ -274,7 +276,7 @@ export function Movimientos() {
             </CardContent>
           </Card>
 
-          {recentSuggestions.length > 0 && <div className="border-t border-border pt-3"><p className="mb-2 text-xs font-bold uppercase text-muted-foreground">Últimos usos de este producto</p><div className="space-y-1">{recentSuggestions.map((movement) => <button type="button" key={movement.id} onClick={() => applySuggestion(movement)} className="flex w-full items-center justify-between rounded-md px-2 py-2 text-left hover:bg-muted"><span><span className="block text-xs font-semibold">{getConceptoLabel(inferConcept(movement))}</span><span className="text-[11px] text-muted-foreground">{movement.referencia || "Sin referencia"}</span></span><RefreshCw className="size-3 text-muted-foreground" /></button>)}</div></div>}
+          {recentSuggestions.length > 0 && <div className="border-t border-border pt-3"><p className="mb-2 text-xs font-bold uppercase text-muted-foreground">Últimos usos de este producto</p><div className="space-y-1">{recentSuggestions.map((movement) => <button type="button" key={movement.id} onPointerMove={updateLiquidGlassPointer} onClick={() => applySuggestion(movement)} className="liquid-choice flex w-full items-center justify-between rounded-md px-2 py-2 text-left"><span><span className="block text-xs font-semibold">{getConceptoLabel(inferConcept(movement))}</span><span className="text-[11px] text-muted-foreground">{movement.referencia || "Sin referencia"}</span></span><RefreshCw className="size-3 text-muted-foreground" /></button>)}</div></div>}
         </aside>
 
         <section className="min-w-0 space-y-3">
@@ -301,7 +303,7 @@ export function Movimientos() {
                       const concept = inferConcept(movement);
                       const positive = type === "ENTRADA" || (type === "AJUSTE" && movement.cantidad > 0);
                       return <TableRow key={movement.id} className="align-top">
-                        <TableCell className="pl-4 text-xs whitespace-nowrap"><p className="font-semibold">{new Date(movement.fechaMovimiento).toLocaleDateString()}</p><p className="text-muted-foreground">{new Date(movement.fechaMovimiento).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</p></TableCell>
+                        <TableCell className="pl-4 text-xs whitespace-nowrap"><p className="font-semibold">{formatDatabaseDate(movement.fechaMovimiento)}</p><p className="text-muted-foreground">{formatDatabaseTime(movement.fechaMovimiento)}</p></TableCell>
                         <TableCell><p className="text-sm font-semibold">{movement.producto}</p><p className="text-xs text-muted-foreground">{movement.variante || "Presentación principal"}</p></TableCell>
                         <TableCell><Badge variant="outline" className={TYPE_META[type]?.tone}>{TYPE_META[type]?.label || type}</Badge><p className="mt-1 max-w-44 text-xs font-medium">{getConceptoLabel(concept)}</p></TableCell>
                         <TableCell className={`text-right font-black ${positive ? "text-emerald-600" : "text-rose-600"}`}>{positive ? "+" : "-"}{Math.abs(movement.cantidad)}</TableCell>

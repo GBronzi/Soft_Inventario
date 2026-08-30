@@ -225,7 +225,7 @@ export function Contactos() {
               <select
                 value={pageSize}
                 onChange={(event) => { setPageSize(Number(event.target.value)); setPage(1); }}
-                className="h-9 rounded-md border border-input bg-background px-3 text-sm text-foreground"
+                className="liquid-select h-9 rounded-md border border-input bg-background px-3 text-sm text-foreground"
               >
                 <option value={50}>50</option>
                 <option value={100}>100</option>

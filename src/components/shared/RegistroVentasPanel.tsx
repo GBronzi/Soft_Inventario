@@ -10,12 +10,11 @@ import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { getRegistroVentasMensual, guardarComentarioRegistroVenta } from "@/database/ventas";
+import { formatDatabaseDate, formatDatabaseTime, localMonthKey } from "@/lib/datetime";
 import type { RegistroVentasMensual, VentaRegistroItem } from "@/types";
 
 function currentMonth() {
-  const now = new Date();
-  const local = new Date(now.getTime() - now.getTimezoneOffset() * 60_000);
-  return local.toISOString().slice(0, 7);
+  return localMonthKey();
 }
 
 function csvValue(value: string | number | null | undefined) {
@@ -170,7 +169,7 @@ export function RegistroVentasPanel({ open, onClose, formatCurrency }: Props) {
             <TableBody>
               {loading ? <TableRow><TableCell colSpan={7} className="h-32 text-center text-muted-foreground">Cargando ventas...</TableCell></TableRow> : registros.length === 0 ? <TableRow><TableCell colSpan={7} className="h-32 text-center text-muted-foreground">No hay ventas registradas para este mes.</TableCell></TableRow> : registros.map((item) => (
                 <TableRow key={item.registroKey} className="align-top">
-                  <TableCell className="whitespace-nowrap text-xs"><p className="font-semibold">{new Date(item.fecha.replace(" ", "T")).toLocaleDateString("es-AR")}</p><p className="text-muted-foreground">{new Date(item.fecha.replace(" ", "T")).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })}</p></TableCell>
+                  <TableCell className="whitespace-nowrap text-xs"><p className="font-semibold">{formatDatabaseDate(item.fecha)}</p><p className="text-muted-foreground">{formatDatabaseTime(item.fecha)}</p></TableCell>
                   <TableCell><Badge variant="outline" className={item.origen === "PROGRAMA" ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-700" : "border-sky-500/30 bg-sky-500/10 text-sky-700"}>{item.origen === "PROGRAMA" ? "Programa" : "Tiendanube"}</Badge><p className="mt-1 max-w-52 truncate text-xs text-muted-foreground" title={item.entradaVenta}>{item.entradaVenta}</p></TableCell>
                   <TableCell><p className="font-semibold">{item.producto}</p><p className="text-xs text-muted-foreground">{item.variante || "Presentación principal"} · {item.numero}</p></TableCell>
                   <TableCell className="text-right font-bold">{item.cantidad} u.</TableCell>

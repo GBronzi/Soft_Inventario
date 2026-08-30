@@ -520,6 +520,13 @@ interface TiendanubeOrderMatch {
   status: string | null;
 }
 
+interface TiendanubePendingChangeRow {
+  id: number;
+  payloadJson: string;
+  productPayloadJson: string | null;
+  detectadoEn: string;
+}
+
 export type TiendanubeSyncChangeType = "PRODUCTO_NUEVO" | "VARIANTE_NUEVA" | "VENTA_TN" | "STOCK" | "PRECIO" | "DATOS" | "IMAGEN";
 
 export interface TiendanubeSyncChange {
@@ -538,6 +545,9 @@ export interface TiendanubeSyncChange {
   localPrice: number | null;
   remotePrice: number | null;
   orderMatches?: TiendanubeOrderMatch[];
+  queueId?: number;
+  detectadoEn?: string | null;
+  productSnapshot?: ProductoUpsert | null;
 }
 
 export interface TiendanubeSyncPreview {
@@ -721,7 +731,7 @@ function describeOrderMatches(matches: TiendanubeOrderMatch[], delta: number) {
   const totalQuantity = matches.reduce((total, match) => total + Number(match.quantity ?? 0), 0);
   const refs = matches.slice(0, 3).map((match) => `#${match.number}`).join(", ");
   const suffix = matches.length > 3 ? ` y ${matches.length - 3} más` : "";
-  return `Venta/s Tiendanube ${refs}${suffix}: ${totalQuantity} unidad/es vendida/s. Diferencia de stock: ${Math.abs(delta)} u.`;
+  return `Venta/s Tiendanube ${refs}${suffix}: ${totalQuantity} unidad/es vendida/s. Stock local ${delta === 0 ? "sin diferencia final" : `con diferencia final de ${Math.abs(delta)} u.`}`;
 }
 
 function buildSyncPreviewSignature(cambios: TiendanubeSyncChange[]) {
@@ -739,6 +749,108 @@ function buildSyncPreviewSignature(cambios: TiendanubeSyncChange[]) {
     ].join(":"))
     .sort()
     .join(";");
+}
+
+function hashString(value: string) {
+  let hash = 0;
+  for (let index = 0; index < value.length; index++) {
+    hash = Math.imul(31, hash) + value.charCodeAt(index) | 0;
+  }
+  return Math.abs(hash).toString(36);
+}
+
+function buildPendingChangeKey(cambio: TiendanubeSyncChange) {
+  return [
+    cambio.type,
+    cambio.tnProductId,
+    cambio.tnVariantId ?? "",
+    cambio.inventarioId ?? "",
+    cambio.localStock ?? "",
+    cambio.remoteStock ?? "",
+    cambio.localPrice ?? "",
+    cambio.remotePrice ?? "",
+    hashString(JSON.stringify({
+      detalle: cambio.detalle,
+      accion: cambio.accion,
+      orderMatches: cambio.orderMatches ?? [],
+    })),
+  ].join(":");
+}
+
+function buildPendingOrderTarget(cambio: TiendanubeSyncChange) {
+  const scope = cambio.type === "DATOS" || cambio.type === "PRODUCTO_NUEVO" || cambio.type === "IMAGEN"
+    ? "PRODUCTO"
+    : "VARIANTE";
+  return [scope, cambio.tnProductId, cambio.tnVariantId ?? ""].join(":");
+}
+
+async function getQueueDatabase() {
+  return (await import("@/database/db")).getDatabase();
+}
+
+async function syncPendingChangeQueue(cambios: TiendanubeSyncChange[], productos: ProductoUpsert[]) {
+  const db = await getQueueDatabase();
+  const productById = new Map(productos.map((producto) => [producto.tnProductId, producto]));
+
+  for (const cambio of cambios) {
+    const productPayload = productById.get(cambio.tnProductId) ?? null;
+    await db.execute(
+      `INSERT OR IGNORE INTO tiendanube_cambios_pendientes (
+        change_key, type, tn_product_id, tn_variant_id, payload_json, product_payload_json
+      ) VALUES ($1, $2, $3, $4, $5, $6)`,
+      [
+        buildPendingChangeKey(cambio),
+        cambio.type,
+        cambio.tnProductId,
+        cambio.tnVariantId,
+        JSON.stringify({ ...cambio, queueId: undefined, detectadoEn: undefined }),
+        productPayload ? JSON.stringify(productPayload) : null,
+      ],
+    );
+  }
+
+  const rows = await db.select<TiendanubePendingChangeRow[]>(
+    `SELECT
+      id,
+      payload_json AS payloadJson,
+      product_payload_json AS productPayloadJson,
+      detectado_en AS detectadoEn
+     FROM tiendanube_cambios_pendientes
+     WHERE estado = 'PENDIENTE'
+     ORDER BY detectado_en ASC, id ASC`,
+  );
+
+  const queuedChanges: TiendanubeSyncChange[] = [];
+  const queuedProducts: ProductoUpsert[] = [];
+  for (const row of rows) {
+    try {
+      const change = JSON.parse(row.payloadJson) as TiendanubeSyncChange;
+      const productSnapshot = row.productPayloadJson ? JSON.parse(row.productPayloadJson) as ProductoUpsert : null;
+      queuedChanges.push({
+        ...change,
+        id: `${change.id}:pendiente-${row.id}`,
+        queueId: row.id,
+        detectadoEn: row.detectadoEn,
+        productSnapshot,
+      });
+      if (productSnapshot) queuedProducts.push(productSnapshot);
+    } catch (error) {
+      console.warn("No se pudo leer un cambio pendiente de Tiendanube", row.id, error);
+    }
+  }
+
+  return { cambios: queuedChanges, productos: queuedProducts };
+}
+
+async function markPendingTiendanubeChange(queueId: number | null | undefined, estado: "APLICADO" | "IGNORADO") {
+  if (!queueId) return;
+  const db = await getQueueDatabase();
+  await db.execute(
+    `UPDATE tiendanube_cambios_pendientes
+     SET estado = $1, aplicado_en = CURRENT_TIMESTAMP
+     WHERE id = $2`,
+    [estado, queueId],
+  );
 }
 
 export async function revisarCambiosTiendanube(
@@ -888,24 +1000,29 @@ export async function revisarCambiosTiendanube(
       const remoteStock = Number(variante.stock ?? 0);
       if (localStock !== remoteStock) {
         const delta = remoteStock - localStock;
-        const paidOrderMatches = delta < 0 ? (paidOrderMatchesByVariant.get(variante.tnVariantId) ?? []) : [];
+        const paidOrderMatches = paidOrderMatchesByVariant.get(variante.tnVariantId) ?? [];
         const unconfirmedOrderMatches = delta < 0 ? (unconfirmedOrderMatchesByVariant.get(variante.tnVariantId) ?? []) : [];
         const paidQuantity = getMatchedOrderQuantity(paidOrderMatches);
-        const isConfirmedTiendanubeSale = paidOrderMatches.length > 0 && paidQuantity === Math.abs(delta);
+        const isConfirmedTiendanubeSale = paidOrderMatches.length > 0 && paidQuantity > 0;
 
         const unconfirmedQuantity = getMatchedOrderQuantity(unconfirmedOrderMatches);
-        const stockDropLooksReservedByUnconfirmedOrder = unconfirmedOrderMatches.length > 0 && unconfirmedQuantity >= Math.abs(delta);
+        const unexplainedDrop = Math.max(0, Math.abs(delta) - paidQuantity);
+        const stockDropLooksReservedByUnconfirmedOrder = unconfirmedOrderMatches.length > 0 && unconfirmedQuantity >= unexplainedDrop;
 
         if (delta < 0 && !isConfirmedTiendanubeSale && stockDropLooksReservedByUnconfirmedOrder) {
           onProgress(`Venta Tiendanube pendiente/no pagada para "${producto.nombre}" (${variantDisplay(variante.variante)}). No se descuenta stock local hasta que el pago figure como confirmado.`);
         } else {
           const orderDetail = isConfirmedTiendanubeSale ? describeOrderMatches(paidOrderMatches, delta) : null;
+          const stockBeforePaidSale = remoteStock + paidQuantity;
+          const hasOtherRemoteAdjustment = isConfirmedTiendanubeSale && stockBeforePaidSale !== localStock;
           cambios.push({
             id: `${isConfirmedTiendanubeSale ? "venta" : "stock"}-${producto.tnProductId}-${variante.tnVariantId}`,
             type: isConfirmedTiendanubeSale ? "VENTA_TN" : "STOCK",
             producto: producto.nombre,
             variante: variantDisplay(variante.variante),
-            detalle: orderDetail ?? (delta < 0
+            detalle: hasOtherRemoteAdjustment
+              ? `${orderDetail} Tiendanube tambien tiene un ajuste previo pendiente: stock local ${localStock} -> stock antes de venta ${stockBeforePaidSale} -> stock final ${remoteStock}.`
+              : orderDetail ?? (delta < 0
               ? `Tiendanube tiene ${Math.abs(delta)} unidad/es menos. No coincide exactamente con ventas pagadas; revisar antes de aplicar.`
               : `Tiendanube tiene ${delta} unidad/es mas. Posible reposicion o ajuste hecho en la tienda online.`),
             accion: isConfirmedTiendanubeSale ? "Registrar stock actualizado por venta Tiendanube pagada" : "Tomar stock de Tiendanube en el programa",
@@ -945,11 +1062,13 @@ export async function revisarCambiosTiendanube(
     }
   }
 
+  const pending = await syncPendingChangeQueue(cambios, productos);
+
   return {
-    cambios,
-    productos,
+    cambios: pending.cambios,
+    productos: [...pending.productos, ...productos],
     fetchedAt: new Date().toISOString(),
-    signature: buildSyncPreviewSignature(cambios),
+    signature: buildSyncPreviewSignature(pending.cambios),
     webhookEventKeys: (options.webhookEvents ?? []).map((event) => event.key),
   };
 }
@@ -962,42 +1081,67 @@ export async function aplicarCambiosSeleccionadosTiendanube(
   const selected = new Set(selectedIds);
   if (selected.size === 0) throw new Error("Selecciona al menos un cambio para aplicar.");
 
-  const productosById = new Map(preview.productos.map((producto) => [producto.tnProductId, producto]));
-  const productLevelIds = new Set<number>();
   for (const cambio of preview.cambios) {
-    if (!selected.has(cambio.id)) continue;
-    if (cambio.type === "PRODUCTO_NUEVO" || cambio.type === "VARIANTE_NUEVA" || cambio.type === "DATOS") {
-      productLevelIds.add(cambio.tnProductId);
+    if (!selected.has(cambio.id) || !cambio.queueId) continue;
+    const target = buildPendingOrderTarget(cambio);
+    const hasEarlierUnselected = preview.cambios.some((other) =>
+      other.queueId
+      && other.queueId < cambio.queueId!
+      && buildPendingOrderTarget(other) === target
+      && !selected.has(other.id)
+    );
+    if (hasEarlierUnselected) {
+      throw new Error(`Hay cambios anteriores pendientes para "${cambio.producto}" (${variantDisplay(cambio.variante)}). Aplica primero los avisos más antiguos para no saltar datos.`);
     }
   }
+
+  const productosById = new Map(preview.productos.map((producto) => [producto.tnProductId, producto]));
+  const productLevelChangeIds = new Set<string>();
 
   let aplicados = 0;
   let errores = 0;
 
-  for (const tnProductId of productLevelIds) {
-    const producto = productosById.get(tnProductId);
+  for (const cambio of preview.cambios) {
+    if (!selected.has(cambio.id)) continue;
+    if (cambio.type !== "PRODUCTO_NUEVO" && cambio.type !== "VARIANTE_NUEVA" && cambio.type !== "DATOS") continue;
+    productLevelChangeIds.add(cambio.id);
+    const producto = cambio.productSnapshot ?? productosById.get(cambio.tnProductId);
     if (!producto) continue;
     try {
       onProgress(`Aplicando producto "${producto.nombre}" desde Tiendanube...`);
       await upsertProductoDesdeTiendanube(producto);
+      await markPendingTiendanubeChange(cambio.queueId, "APLICADO");
       aplicados++;
     } catch (error) {
-      console.warn("Error aplicando producto Tiendanube", tnProductId, error);
+      console.warn("Error aplicando producto Tiendanube", cambio.tnProductId, error);
       errores++;
     }
   }
 
   for (const cambio of preview.cambios) {
-    if (!selected.has(cambio.id) || productLevelIds.has(cambio.tnProductId)) continue;
+    if (!selected.has(cambio.id) || productLevelChangeIds.has(cambio.id)) continue;
     try {
       if ((cambio.type === "STOCK" || cambio.type === "VENTA_TN") && cambio.inventarioId != null && cambio.tnVariantId != null && cambio.remoteStock != null) {
         onProgress(`Aplicando stock de "${cambio.producto}" (${variantDisplay(cambio.variante)})...`);
         const isTiendanubeSale = cambio.type === "VENTA_TN";
-        const saleUnits = Math.abs(Number(cambio.stockDelta ?? 0));
+        const saleUnits = isTiendanubeSale ? getMatchedOrderQuantity(cambio.orderMatches ?? []) : Math.abs(Number(cambio.stockDelta ?? 0));
         const unitPrice = Number(cambio.localPrice ?? cambio.remotePrice ?? 0);
         const orderRefs = cambio.orderMatches?.length
           ? cambio.orderMatches.map((order) => `#${order.number}`).join(", ")
           : null;
+        if (isTiendanubeSale && saleUnits > 0 && cambio.localStock != null) {
+          const stockBeforeSale = Number(cambio.remoteStock) + saleUnits;
+          if (stockBeforeSale !== Number(cambio.localStock)) {
+            await aplicarStockDesdeTiendanube({
+              inventarioId: cambio.inventarioId,
+              tnProductId: cambio.tnProductId,
+              tnVariantId: cambio.tnVariantId,
+              stock: stockBeforeSale,
+              motivo: `Ajuste previo de Tiendanube antes de venta pagada (${cambio.localStock} -> ${stockBeforeSale}).`,
+              referencia: `TN-P${cambio.tnProductId}-V${cambio.tnVariantId}-PREVENTA`,
+            });
+          }
+        }
         await aplicarStockDesdeTiendanube({
           inventarioId: cambio.inventarioId,
           tnProductId: cambio.tnProductId,
@@ -1009,19 +1153,22 @@ export async function aplicarCambiosSeleccionadosTiendanube(
           referencia: isTiendanubeSale && orderRefs ? `Tiendanube ${orderRefs}` : undefined,
           importeTotal: isTiendanubeSale ? saleUnits * unitPrice : undefined,
         });
+        await markPendingTiendanubeChange(cambio.queueId, "APLICADO");
         aplicados++;
       }
       if (cambio.type === "PRECIO" && cambio.inventarioId != null && cambio.remotePrice != null) {
         onProgress(`Aplicando precio de "${cambio.producto}" (${variantDisplay(cambio.variante)})...`);
         await aplicarPrecioDesdeTiendanube({ inventarioId: cambio.inventarioId, precioVenta: cambio.remotePrice });
+        await markPendingTiendanubeChange(cambio.queueId, "APLICADO");
         aplicados++;
       }
       if (cambio.type === "IMAGEN") {
-        const producto = productosById.get(cambio.tnProductId);
+        const producto = cambio.productSnapshot ?? productosById.get(cambio.tnProductId);
         const remoteImageUrl = producto?.imagenUrl?.trim();
         if (!producto || !remoteImageUrl) throw new Error("Tiendanube no devolvió una imagen válida para aplicar.");
         onProgress(`Completando imagen de "${cambio.producto}" desde Tiendanube...`);
         await setTnUpdatedAt(cambio.tnProductId, producto.tnUpdatedAt ?? null, remoteImageUrl);
+        await markPendingTiendanubeChange(cambio.queueId, "APLICADO");
         aplicados++;
       }
     } catch (error) {

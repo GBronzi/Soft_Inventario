@@ -4,6 +4,42 @@ export interface ReleaseNoteSection {
 }
 
 const RELEASE_NOTES: Record<string, ReleaseNoteSection[]> = {
+  "1.2.0": [
+    {
+      title: "Interfaz visual",
+      items: [
+        "Se aplica el estilo Liquid Glass en botones, tarjetas, campos, tablas, barra lateral y paneles principales.",
+        "Se mejora la legibilidad en tema claro, gris y oscuro para evitar textos blancos sobre fondos claros.",
+        "Se ajusta el login, el boton de mostrar contraseña y el boton Ingresar.",
+        "Acciones rapidas ya no muestra Venta rapida local.",
+      ],
+    },
+    {
+      title: "Respaldo y configuracion",
+      items: [
+        "La tarjeta Backup local ahora muestra mejor el estado del respaldo y la restauracion.",
+        "Configuracion suma mas perfiles de resolucion: Netbook, HD, HD+, 1600x900, Full HD y 2K/4K.",
+      ],
+    },
+    {
+      title: "Ventas y horarios",
+      items: [
+        "Se corrige la visualizacion de hora en movimientos, Kardex, Ventas del dia y Registro de ventas cuando la base guarda timestamps en UTC.",
+        "Ventas del dia ahora suma ventas confirmadas de Tiendanube y salidas manuales registradas como venta, igual que el Registro de ventas.",
+        "El Registro de ventas muestra solo movimientos de venta reales para evitar contar ajustes negativos de sincronizacion como ventas.",
+      ],
+    },
+    {
+      title: "Sincronizacion Tiendanube",
+      items: [
+        "Las ordenes pendientes, rechazadas o canceladas no generan descuento de stock local ni cambios aplicables como venta.",
+        "Cuando Tiendanube trae una reposicion pendiente y luego una venta pagada, el programa registra primero el ajuste remoto y despues la venta para no saltar unidades.",
+        "La venta Tiendanube se reconoce por orden pagada asociada, no solo por diferencia exacta de stock.",
+        "Los cambios entrantes quedan en una cola local pendiente para que un aviso nuevo no reemplace uno anterior del mismo producto.",
+        "Si hay varios avisos del mismo producto o variante, el programa obliga a resolver primero los mas antiguos.",
+      ],
+    },
+  ],
   "1.1.6": [
     {
       title: "Sincronizacion Tiendanube",

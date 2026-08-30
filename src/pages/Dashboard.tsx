@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { Boxes, ClipboardList, History, PackageSearch, ReceiptText, ShoppingCart, TriangleAlert, Wallet } from "lucide-react";
+import { ArrowDownToLine, ArrowRightLeft, Boxes, ClipboardList, History, PackagePlus, PackageSearch, ReceiptText, ShoppingCart, TriangleAlert, Wallet } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
@@ -13,7 +13,9 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { getDashboardOverview, getLowStockAlerts, getRecentMovimientos, getResumenMensualMovimientos, MONTHLY_SALES_UPDATED_EVENT } from "@/database/queries";
 import { TIENDANUBE_SYNCED_EVENT } from "@/hooks/useTiendanubeSync";
 import { getResumenVentasDia } from "@/database/ventas";
-import { buildMovimientosRoute, buildRepeatMovimientoRoute, buildVentaRapidaRoute } from "@/lib/movimientos";
+import { localDateKey, localMonthKey } from "@/lib/datetime";
+import { updateLiquidGlassPointer } from "@/lib/liquidGlass";
+import { buildMovimientosRoute, buildRepeatMovimientoRoute } from "@/lib/movimientos";
 import type { DashboardStats, GastoRegistro, LicenseStatus, MovimientoListado, ResumenMensualMovimientos, ResumenVentasDia, StockAlert } from "@/types";
 
 const GASTOS_STORAGE_KEY = "soft_inventario_gastos";
@@ -34,9 +36,7 @@ const initialStats: DashboardStats = {
 };
 
 function getTodayDateParam() {
-  const now = new Date();
-  const localTime = new Date(now.getTime() - now.getTimezoneOffset() * 60_000);
-  return localTime.toISOString().slice(0, 10);
+  return localDateKey();
 }
 
 function readStoredGastos(): GastoRegistro[] {
@@ -90,7 +90,7 @@ export function Dashboard() {
 
   useEffect(() => {
     async function load() {
-      const currentMonth = new Date().toISOString().slice(0, 7);
+      const currentMonth = localMonthKey();
       const [dashboard, lowStock, recentMovements, movementSummary] = await Promise.all([
         getDashboardOverview(),
         getLowStockAlerts(),
@@ -168,18 +168,17 @@ export function Dashboard() {
         </div>
       </section>
 
-      <Card className="overflow-hidden border-none bg-gradient-to-br from-primary/10 via-transparent to-transparent shadow-lg">
+      <Card className="liquid-actions-card">
         <CardHeader>
           <CardTitle className="text-lg">Acciones rápidas</CardTitle>
           <CardDescription>Atajos operativos optimizados.</CardDescription>
         </CardHeader>
         <CardContent className="flex flex-wrap gap-3 pb-6">
-          <Button className="h-11 px-6 rounded-xl shadow-lg shadow-primary/20" onClick={() => navigate("/producto/nuevo")} type="button">Nuevo producto</Button>
-          <Button className="h-11 px-6 rounded-xl bg-emerald-600 text-white hover:bg-emerald-700" onClick={() => navigate("/ventas")} type="button"><ShoppingCart className="mr-2 size-4" />Nueva venta</Button>
-          <Button variant="secondary" className="h-11 px-6 rounded-xl" onClick={() => navigate(buildMovimientosRoute())} type="button">Registrar movimiento</Button>
-          <Button variant="destructive" className="h-11 px-6 rounded-xl shadow-lg shadow-destructive/20" onClick={() => navigate(buildMovimientosRoute({ presetTipoMovimiento: "SALIDA" }))} type="button">Registrar salida</Button>
-          <Button variant="outline" className="h-11 px-6 rounded-xl border-dashed border-2" onClick={() => navigate(buildVentaRapidaRoute())} type="button">Venta rápida local</Button>
-          <Button variant="outline" className="h-11 px-6 rounded-xl" onClick={() => setShowSalesRegistry((current) => !current)} type="button"><ReceiptText className="mr-2 size-4" />Registro de ventas</Button>
+          <Button variant="ghost" className="liquid-action-button liquid-action-primary px-5" onPointerMove={updateLiquidGlassPointer} onClick={() => navigate("/producto/nuevo")} type="button"><PackagePlus className="mr-2 size-4" />Nuevo producto</Button>
+          <Button variant="ghost" className="liquid-action-button px-5" onPointerMove={updateLiquidGlassPointer} onClick={() => navigate("/ventas")} type="button"><ShoppingCart className="mr-2 size-4" />Nueva venta</Button>
+          <Button variant="ghost" className="liquid-action-button px-5" onPointerMove={updateLiquidGlassPointer} onClick={() => navigate(buildMovimientosRoute())} type="button"><ArrowRightLeft className="mr-2 size-4" />Registrar movimiento</Button>
+          <Button variant="ghost" className="liquid-action-button px-5" onPointerMove={updateLiquidGlassPointer} onClick={() => navigate(buildMovimientosRoute({ presetTipoMovimiento: "SALIDA" }))} type="button"><ArrowDownToLine className="mr-2 size-4" />Registrar salida</Button>
+          <Button variant="ghost" className="liquid-action-button px-5" onPointerMove={updateLiquidGlassPointer} onClick={() => setShowSalesRegistry((current) => !current)} type="button"><ReceiptText className="mr-2 size-4" />Registro de ventas</Button>
         </CardContent>
       </Card>
 

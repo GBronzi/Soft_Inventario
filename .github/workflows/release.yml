@@ -35,10 +35,27 @@ jobs:
           tagName: ${{ github.ref_name }}
           releaseName: "Inventario App ${{ github.ref_name }}"
           releaseBody: |
+            ## Interfaz visual
+            - Se aplica el estilo Liquid Glass en botones, tarjetas, campos, tablas, barra lateral y paneles principales.
+            - Se mejora la legibilidad en tema claro, gris y oscuro para evitar textos blancos sobre fondos claros.
+            - Se ajusta el login, el boton de mostrar contraseña y el boton Ingresar.
+            - Acciones rapidas ya no muestra Venta rapida local.
+
+            ## Respaldo y configuracion
+            - La tarjeta Backup local ahora muestra mejor el estado del respaldo y la restauracion.
+            - Se agregan mas perfiles de resolucion para pantallas de clientes con menor altura o menor definicion.
+
+            ## Ventas y horarios
+            - Se corrige la visualizacion de hora en movimientos, Kardex, Ventas del dia y Registro de ventas.
+            - Ventas del dia ahora suma ventas confirmadas de Tiendanube y salidas manuales registradas como venta.
+            - El Registro de ventas filtra movimientos reales de venta para evitar contar ajustes negativos como ventas.
+
             ## Sincronizacion Tiendanube
-            - Las ventas de Tiendanube ahora se tratan como venta aplicable solo cuando el pago figura confirmado como paid.
+            - Las ventas de Tiendanube se tratan como venta aplicable solo cuando el pago figura confirmado como paid.
             - Las ordenes pendientes, autorizadas, abandonadas, anuladas o reembolsadas no descuentan stock local.
             - Si Tiendanube baja stock por una orden no pagada, el programa deja aviso en el registro de sincronizacion y espera confirmacion de pago.
+            - Los cambios entrantes quedan en cola local para que un aviso nuevo no reemplace uno anterior pendiente.
+            - Si hay varios avisos del mismo producto o variante, el programa obliga a resolver primero los mas antiguos.
 
             ## Proteccion de stock
             - Evita descontar productos en el programa cuando el cliente deja, rechaza o no concreta una compra en Tiendanube.

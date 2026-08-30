@@ -5,11 +5,12 @@ import { Info, Instagram, Mail, User } from "lucide-react";
 
 import { navigationItems } from "@/components/layout/navigation";
 import { getConfiguracionEmpresa } from "@/database/queries";
+import { updateLiquidGlassPointer } from "@/lib/liquidGlass";
 import type { ConfiguracionEmpresa } from "@/types";
 
 export function AppSidebar() {
   const [config, setConfig] = useState<ConfiguracionEmpresa | null>(null);
-  const [appVersion, setAppVersion] = useState("1.0.12");
+  const [appVersion, setAppVersion] = useState("1.2.0");
   const pathname = useSyncExternalStore(
     (onStoreChange) => {
       window.addEventListener("hashchange", onStoreChange);
@@ -62,11 +63,12 @@ export function AppSidebar() {
             <a
               key={item.to}
               href={`#${item.to}`}
+              onPointerMove={updateLiquidGlassPointer}
               className={[
-                  "group flex items-center gap-4 rounded-2xl px-4 py-3.5 transition-all duration-300 relative overflow-hidden",
+                  "liquid-sidebar-link group flex items-center gap-4 px-4 py-3.5",
                   item.matches(pathname)
-                    ? "bg-primary text-primary-foreground shadow-lg shadow-primary/20"
-                    : "text-muted-foreground hover:bg-muted/50 hover:text-foreground",
+                    ? "liquid-sidebar-link-active"
+                    : "text-muted-foreground",
                 ].join(" ")}
             >
               <div className="relative z-10 size-5 flex items-center justify-center shrink-0">
@@ -78,9 +80,6 @@ export function AppSidebar() {
                   {item.description}
                 </p>
               </div>
-              
-              {/* Subtle hover effect light */}
-              <div className="absolute inset-0 bg-white/5 opacity-0 group-hover:opacity-100 transition-opacity" />
             </a>
           );
         })}

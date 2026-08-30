@@ -73,7 +73,7 @@ function normalizeVariant(form: VariantForm) {
 }
 
 const selectClassName =
-  "h-10 w-full rounded-xl border border-border/50 bg-background/50 px-3 py-2 text-sm text-foreground outline-none transition-all focus:ring-2 focus:ring-primary/20 appearance-none";
+  "liquid-select h-10 w-full rounded-xl border border-border/50 bg-background/50 px-3 py-2 text-sm text-foreground outline-none transition-all focus:ring-2 focus:ring-primary/20 appearance-none";
 
 type StatusTone = "success" | "error" | "info";
 
@@ -302,7 +302,7 @@ export function ProductoForm() {
                     <span>{status.message}</span>
                   </div>
                 )}
-                <Button disabled={saving} type="submit" className="w-full h-12 rounded-2xl bg-slate-900 text-white hover:bg-slate-700 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-200 font-black shadow-2xl">
+                <Button disabled={saving} type="submit" className="product-submit-button w-full h-12 rounded-2xl bg-slate-900 text-white hover:bg-slate-700 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-200 font-black shadow-2xl">
                   {saving ? "Guardando..." : isEditing ? "Actualizar Datos" : "Registrar Producto"}
                 </Button>
              </CardContent>

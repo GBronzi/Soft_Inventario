@@ -2,6 +2,7 @@ import { Banknote } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { formatDatabaseTime } from "@/lib/datetime";
 import type { ResumenVentasDia } from "@/types";
 
 interface Props {
@@ -28,8 +29,8 @@ export function VentasDiaCard({ summary, open, onToggle, formatCurrency }: Props
         {!summary?.detalles.length ? <div className="p-8 text-center text-sm text-muted-foreground">Todavía no hay ventas registradas hoy.</div> : <div className="overflow-x-auto">
           <table className="w-full min-w-[720px] text-sm">
             <thead className="bg-muted/40 text-left text-xs uppercase text-muted-foreground"><tr><th className="px-5 py-3">Hora</th><th className="px-3 py-3">Perfume</th><th className="px-3 py-3">Cantidad</th><th className="px-3 py-3">Pago</th><th className="px-5 py-3 text-right">Total</th></tr></thead>
-            <tbody className="divide-y">{summary.detalles.map((item, index) => <tr key={`${item.ventaId}-${index}`}><td className="px-5 py-3 text-muted-foreground">{new Date(item.fecha.replace(" ", "T")).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })}</td><td className="px-3 py-3"><p className="font-bold">{item.producto}</p><p className="text-xs text-muted-foreground">{item.variante || "Presentación principal"}</p></td><td className="px-3 py-3">{item.cantidad} u.</td><td className="px-3 py-3"><span className="rounded bg-muted px-2 py-1 text-[10px] font-bold">{item.medioPago}</span></td><td className="px-5 py-3 text-right font-black">{formatCurrency(item.subtotal)}</td></tr>)}</tbody>
-            <tfoot className="border-t-2 border-border bg-muted/20"><tr><td colSpan={2} className="px-5 py-4 font-bold">Total del día</td><td className="px-3 py-4 font-bold">{summary.unidades} u.</td><td className="px-3 py-4 text-xs text-muted-foreground">Efectivo {formatCurrency(summary.efectivo)} · Transferencia {formatCurrency(summary.transferencia)} · Tarjeta {formatCurrency(summary.tarjeta)} · Otro {formatCurrency(summary.otro)}</td><td className="px-5 py-4 text-right text-lg font-black text-emerald-700">{formatCurrency(summary.total)}</td></tr></tfoot>
+            <tbody className="divide-y">{summary.detalles.map((item, index) => <tr key={`${item.ventaId}-${index}`}><td className="px-5 py-3 text-muted-foreground">{formatDatabaseTime(item.fecha)}</td><td className="px-3 py-3"><p className="font-bold">{item.producto}</p><p className="text-xs text-muted-foreground">{item.variante || "Presentación principal"}</p></td><td className="px-3 py-3">{item.cantidad} u.</td><td className="px-3 py-3"><span className="rounded bg-muted px-2 py-1 text-[10px] font-bold">{item.medioPago}</span></td><td className="px-5 py-3 text-right font-black">{formatCurrency(item.subtotal)}</td></tr>)}</tbody>
+            <tfoot className="border-t-2 border-border bg-muted/20"><tr><td colSpan={2} className="px-5 py-4 font-bold">Total del día</td><td className="px-3 py-4 font-bold">{summary.unidades} u.</td><td className="px-3 py-4 text-xs text-muted-foreground">Efectivo {formatCurrency(summary.efectivo)} · Transferencia {formatCurrency(summary.transferencia)} · Tarjeta {formatCurrency(summary.tarjeta)} · Otro {formatCurrency(summary.otro)} · Tiendanube {formatCurrency(summary.tiendanube)} · Movimientos {formatCurrency(summary.movimientos)}</td><td className="px-5 py-4 text-right text-lg font-black text-emerald-700">{formatCurrency(summary.total)}</td></tr></tfoot>
           </table>
         </div>}
       </CardContent>}

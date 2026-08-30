@@ -1,5 +1,6 @@
 import { getDatabase } from "@/database/db";
 import { notifyMonthlySalesUpdate } from "@/database/queries";
+import { localDateKey, localMonthKey } from "@/lib/datetime";
 import type { RegistroVentasMensual, ResumenVentasDia, VentaDraft, VentaRegistroItem, VentaRegistrada } from "@/types";
 
 function optionalText(value?: string) {
@@ -76,22 +77,10 @@ export async function registrarVenta(payload: VentaDraft): Promise<VentaRegistra
 
 export async function getResumenVentasDia(fecha?: string): Promise<ResumenVentasDia> {
   const db = await getDatabase();
-  const dia = fecha?.trim() || new Date().toISOString().slice(0, 10);
-  const [resumenRows, detalles] = await Promise.all([
-    db.select<Array<{ total: number; unidades: number; operaciones: number; efectivo: number; transferencia: number; tarjeta: number; otro: number }>>(
-      `SELECT
-        COALESCE(SUM(total), 0) AS total,
-        COUNT(*) AS operaciones,
-        COALESCE(SUM(CASE WHEN medio_pago = 'EFECTIVO' THEN total ELSE 0 END), 0) AS efectivo,
-        COALESCE(SUM(CASE WHEN medio_pago = 'TRANSFERENCIA' THEN total ELSE 0 END), 0) AS transferencia,
-        COALESCE(SUM(CASE WHEN medio_pago = 'TARJETA' THEN total ELSE 0 END), 0) AS tarjeta,
-        COALESCE(SUM(CASE WHEN medio_pago = 'OTRO' THEN total ELSE 0 END), 0) AS otro,
-        COALESCE((SELECT SUM(vd.cantidad) FROM venta_detalle vd INNER JOIN ventas v2 ON v2.id = vd.venta_id WHERE DATE(v2.creada_en, 'localtime') = DATE($1)), 0) AS unidades
-       FROM ventas WHERE estado = 'CONFIRMADA' AND DATE(creada_en, 'localtime') = DATE($1)`,
-      [dia],
-    ),
-    db.select<ResumenVentasDia["detalles"]>(
-      `SELECT v.id AS ventaId, v.numero AS numero, v.creada_en AS fecha,
+  const dia = fecha?.trim() || localDateKey();
+  const detalles = await db.select<ResumenVentasDia["detalles"]>(
+    `SELECT v.id AS ventaId, v.numero AS numero, v.creada_en AS fecha,
+        'PROGRAMA' AS origen,
         p.nombre AS producto, COALESCE(NULLIF(i.capacidad_medida, ''), NULLIF(i.variante, '')) AS variante,
         vd.cantidad AS cantidad, vd.precio_unitario AS precioUnitario,
         vd.subtotal AS subtotal, v.medio_pago AS medioPago
@@ -100,26 +89,68 @@ export async function getResumenVentasDia(fecha?: string): Promise<ResumenVentas
        INNER JOIN inventario i ON i.id = vd.inventario_id
        INNER JOIN productos p ON p.id = i.producto_id
        WHERE v.estado = 'CONFIRMADA' AND DATE(v.creada_en, 'localtime') = DATE($1)
-       ORDER BY v.creada_en DESC, vd.id DESC`,
-      [dia],
-    ),
-  ]);
-  const row = resumenRows[0];
+      UNION ALL
+      SELECT -m.id AS ventaId,
+        COALESCE(NULLIF(m.referencia, ''), 'MOV-' || m.id) AS numero,
+        m.fecha_movimiento AS fecha,
+        CASE
+          WHEN LOWER(COALESCE(m.motivo, '')) LIKE '%tiendanube%'
+            OR LOWER(COALESCE(m.referencia, '')) LIKE 'tiendanube%'
+            OR LOWER(COALESCE(m.referencia, '')) LIKE 'tn-%'
+          THEN 'TIENDANUBE'
+          ELSE 'PROGRAMA'
+        END AS origen,
+        p.nombre AS producto,
+        COALESCE(NULLIF(i.capacidad_medida, ''), NULLIF(i.variante, '')) AS variante,
+        ABS(m.cantidad) AS cantidad,
+        COALESCE(NULLIF(m.precio_unitario, 0), i.precio_venta, 0) AS precioUnitario,
+        CASE
+          WHEN COALESCE(m.importe_total, 0) > 0 THEN m.importe_total
+          ELSE ABS(m.cantidad) * COALESCE(NULLIF(m.precio_unitario, 0), i.precio_venta, 0)
+        END AS subtotal,
+        CASE
+          WHEN LOWER(COALESCE(m.motivo, '')) LIKE '%tiendanube%'
+            OR LOWER(COALESCE(m.referencia, '')) LIKE 'tiendanube%'
+            OR LOWER(COALESCE(m.referencia, '')) LIKE 'tn-%'
+          THEN 'TIENDANUBE'
+          ELSE 'MOVIMIENTO'
+        END AS medioPago
+      FROM movimientos_stock m
+      INNER JOIN inventario i ON i.id = m.inventario_id
+      INNER JOIN productos p ON p.id = i.producto_id
+      WHERE m.cantidad < 0
+        AND m.concepto = 'VENTA'
+        AND DATE(m.fecha_movimiento, 'localtime') = DATE($1)
+        AND NOT EXISTS (
+          SELECT 1 FROM ventas v2
+          WHERE v2.numero = m.operacion_id AND v2.estado = 'CONFIRMADA'
+        )
+      ORDER BY fecha DESC, ventaId DESC`,
+    [dia],
+  );
+  const normalized = detalles.map((item) => ({
+    ...item,
+    cantidad: Number(item.cantidad ?? 0),
+    precioUnitario: Number(item.precioUnitario ?? 0),
+    subtotal: Number(item.subtotal ?? 0),
+  }));
   return {
-    total: Number(row?.total ?? 0),
-    unidades: Number(row?.unidades ?? 0),
-    operaciones: Number(row?.operaciones ?? 0),
-    efectivo: Number(row?.efectivo ?? 0),
-    transferencia: Number(row?.transferencia ?? 0),
-    tarjeta: Number(row?.tarjeta ?? 0),
-    otro: Number(row?.otro ?? 0),
-    detalles,
+    total: normalized.reduce((sum, item) => sum + item.subtotal, 0),
+    unidades: normalized.reduce((sum, item) => sum + item.cantidad, 0),
+    operaciones: new Set(normalized.map((item) => item.numero || String(item.ventaId))).size,
+    efectivo: normalized.filter((item) => item.medioPago === "EFECTIVO").reduce((sum, item) => sum + item.subtotal, 0),
+    transferencia: normalized.filter((item) => item.medioPago === "TRANSFERENCIA").reduce((sum, item) => sum + item.subtotal, 0),
+    tarjeta: normalized.filter((item) => item.medioPago === "TARJETA").reduce((sum, item) => sum + item.subtotal, 0),
+    otro: normalized.filter((item) => item.medioPago === "OTRO").reduce((sum, item) => sum + item.subtotal, 0),
+    tiendanube: normalized.filter((item) => item.medioPago === "TIENDANUBE").reduce((sum, item) => sum + item.subtotal, 0),
+    movimientos: normalized.filter((item) => item.medioPago === "MOVIMIENTO").reduce((sum, item) => sum + item.subtotal, 0),
+    detalles: normalized,
   };
 }
 
 export async function getRegistroVentasMensual(mes: string): Promise<RegistroVentasMensual> {
   const db = await getDatabase();
-  const selectedMonth = /^\d{4}-\d{2}$/.test(mes) ? mes : new Date().toISOString().slice(0, 7);
+  const selectedMonth = /^\d{4}-\d{2}$/.test(mes) ? mes : localMonthKey();
   const registros = await db.select<VentaRegistroItem[]>(
     `SELECT
         'PROGRAMA:' || vd.id AS registroKey,
@@ -142,10 +173,22 @@ export async function getRegistroVentasMensual(mes: string): Promise<RegistroVen
       WHERE v.estado = 'CONFIRMADA' AND strftime('%Y-%m', v.creada_en, 'localtime') = $1
       UNION ALL
       SELECT
-        'TIENDANUBE:' || m.id AS registroKey,
-        'TIENDANUBE' AS origen,
+        CASE
+          WHEN LOWER(COALESCE(m.motivo, '')) LIKE '%tiendanube%'
+            OR LOWER(COALESCE(m.referencia, '')) LIKE 'tiendanube%'
+            OR LOWER(COALESCE(m.referencia, '')) LIKE 'tn-%'
+          THEN 'TIENDANUBE:' || m.id
+          ELSE 'MOVIMIENTO:' || m.id
+        END AS registroKey,
+        CASE
+          WHEN LOWER(COALESCE(m.motivo, '')) LIKE '%tiendanube%'
+            OR LOWER(COALESCE(m.referencia, '')) LIKE 'tiendanube%'
+            OR LOWER(COALESCE(m.referencia, '')) LIKE 'tn-%'
+          THEN 'TIENDANUBE'
+          ELSE 'PROGRAMA'
+        END AS origen,
         m.fecha_movimiento AS fecha,
-        COALESCE(NULLIF(m.referencia, ''), 'Tiendanube') AS numero,
+        COALESCE(NULLIF(m.referencia, ''), 'MOV-' || m.id) AS numero,
         p.nombre AS producto,
         COALESCE(NULLIF(i.capacidad_medida, ''), NULLIF(i.variante, '')) AS variante,
         ABS(m.cantidad) AS cantidad,
@@ -154,19 +197,31 @@ export async function getRegistroVentasMensual(mes: string): Promise<RegistroVen
           WHEN COALESCE(m.importe_total, 0) > 0 THEN m.importe_total
           ELSE ABS(m.cantidad) * COALESCE(NULLIF(m.precio_unitario, 0), i.precio_venta, 0)
         END AS subtotal,
-        'TIENDANUBE' AS medioPago,
-        COALESCE(NULLIF(m.motivo, ''), 'Venta detectada desde Tiendanube') AS entradaVenta,
+        CASE
+          WHEN LOWER(COALESCE(m.motivo, '')) LIKE '%tiendanube%'
+            OR LOWER(COALESCE(m.referencia, '')) LIKE 'tiendanube%'
+            OR LOWER(COALESCE(m.referencia, '')) LIKE 'tn-%'
+          THEN 'TIENDANUBE'
+          ELSE 'MOVIMIENTO'
+        END AS medioPago,
+        COALESCE(NULLIF(m.motivo, ''), 'Venta registrada desde movimiento de stock') AS entradaVenta,
         COALESCE(c.comentario, '') AS comentario
       FROM movimientos_stock m
       INNER JOIN inventario i ON i.id = m.inventario_id
       INNER JOIN productos p ON p.id = i.producto_id
-      LEFT JOIN venta_registro_comentarios c ON c.registro_key = 'TIENDANUBE:' || m.id
+      LEFT JOIN venta_registro_comentarios c ON c.registro_key = CASE
+        WHEN LOWER(COALESCE(m.motivo, '')) LIKE '%tiendanube%'
+          OR LOWER(COALESCE(m.referencia, '')) LIKE 'tiendanube%'
+          OR LOWER(COALESCE(m.referencia, '')) LIKE 'tn-%'
+        THEN 'TIENDANUBE:' || m.id
+        ELSE 'MOVIMIENTO:' || m.id
+      END
       WHERE m.cantidad < 0
         AND strftime('%Y-%m', m.fecha_movimiento, 'localtime') = $1
-        AND (
-          m.concepto = 'SINCRONIZACION_TN'
-          OR LOWER(COALESCE(m.motivo, '')) LIKE '%tiendanube%'
-          OR LOWER(COALESCE(m.referencia, '')) LIKE 'tn-%'
+        AND m.concepto = 'VENTA'
+        AND NOT EXISTS (
+          SELECT 1 FROM ventas v2
+          WHERE v2.numero = m.operacion_id AND v2.estado = 'CONFIRMADA'
         )
       ORDER BY fecha DESC, registroKey DESC`,
     [selectedMonth],

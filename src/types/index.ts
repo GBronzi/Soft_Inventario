@@ -121,7 +121,8 @@ export interface VentaDetalleListado {
   cantidad: number;
   precioUnitario: number;
   subtotal: number;
-  medioPago: MedioPago;
+  medioPago: MedioPago | "TIENDANUBE" | "MOVIMIENTO";
+  origen: VentaRegistroOrigen;
 }
 
 export interface ResumenVentasDia {
@@ -132,6 +133,8 @@ export interface ResumenVentasDia {
   transferencia: number;
   tarjeta: number;
   otro: number;
+  tiendanube: number;
+  movimientos: number;
   detalles: VentaDetalleListado[];
 }
 
@@ -147,7 +150,7 @@ export interface VentaRegistroItem {
   cantidad: number;
   precioUnitario: number;
   subtotal: number;
-  medioPago: MedioPago | "TIENDANUBE";
+  medioPago: MedioPago | "TIENDANUBE" | "MOVIMIENTO";
   entradaVenta: string;
   comentario: string;
 }

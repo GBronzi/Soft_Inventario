@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { getCatalogoFilterOptions, getCatalogoProductos } from "@/database/queries";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { TIENDANUBE_SYNCED_EVENT } from "@/hooks/useTiendanubeSync";
+import { updateLiquidGlassPointer } from "@/lib/liquidGlass";
 import type { CatalogoFilterOptions, CatalogoItem, EstadoInventario } from "@/types";
 
 type CatalogoFiltersState = {
@@ -167,7 +168,7 @@ export function Catalogo() {
               <div className="space-y-2">
                 <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Categoría</label>
                 <select
-                  className="w-full rounded-xl border border-border/50 bg-background/50 p-2.5 text-sm focus:ring-2 focus:ring-primary/20 outline-none"
+                  className="liquid-select w-full rounded-xl border border-border/50 bg-background/50 p-2.5 text-sm focus:ring-2 focus:ring-primary/20 outline-none"
                   value={filters.categoria}
                   onChange={(e) => {
                     const p = new URLSearchParams(searchParams);
@@ -183,7 +184,7 @@ export function Catalogo() {
               <div className="space-y-2">
                 <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Marca</label>
                 <select
-                  className="w-full rounded-xl border border-border/50 bg-background/50 p-2.5 text-sm focus:ring-2 focus:ring-primary/20 outline-none"
+                  className="liquid-select w-full rounded-xl border border-border/50 bg-background/50 p-2.5 text-sm focus:ring-2 focus:ring-primary/20 outline-none"
                   value={filters.marca}
                   onChange={(e) => {
                     const p = new URLSearchParams(searchParams);
@@ -246,7 +247,7 @@ export function Catalogo() {
 
         {/* Listado de Productos */}
         <div className="flex-1 space-y-6">
-          <div className="flex items-center justify-between bg-card/30 p-4 rounded-2xl backdrop-blur-sm border border-border/50">
+          <div className="liquid-surface flex items-center justify-between bg-card/30 p-4 rounded-2xl backdrop-blur-sm border border-border/50">
             <h3 className="text-sm font-medium text-muted-foreground">
               Hemos encontrado <span className="text-foreground font-bold">{productosAgrupados.length}</span> productos · {productos.length} variantes
             </h3>
@@ -254,7 +255,7 @@ export function Catalogo() {
               <Button 
                 variant="ghost" 
                 size="icon" 
-                className={`h-8 w-8 rounded-lg transition-all ${viewType === "grid" ? "bg-background shadow-sm border border-border/50" : "opacity-40 hover:opacity-100"}`}
+                className={`h-8 w-8 rounded-lg transition-all ${viewType === "grid" ? "shadow-sm ring-1 ring-primary/20" : "opacity-60 hover:opacity-100"}`}
                 onClick={() => toggleView("grid")}
               >
                 <LayoutGrid className="size-4" />
@@ -262,7 +263,7 @@ export function Catalogo() {
               <Button 
                 variant="ghost" 
                 size="icon" 
-                className={`h-8 w-8 rounded-lg transition-all ${viewType === "list" ? "bg-background shadow-sm border border-border/50" : "opacity-40 hover:opacity-100"}`}
+                className={`h-8 w-8 rounded-lg transition-all ${viewType === "list" ? "shadow-sm ring-1 ring-primary/20" : "opacity-60 hover:opacity-100"}`}
                 onClick={() => toggleView("list")}
               >
                 <List className="size-4" />
@@ -330,7 +331,7 @@ export function Catalogo() {
                         <span className="text-right">Stock</span>
                       </div>
                       {producto.variantesGrupo.map((variante) => (
-                        <button key={variante.inventarioId} type="button" onClick={() => navigate(`/producto/${variante.inventarioId}`)} className="grid w-full grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-3 border-b border-border/40 px-3 py-2 text-left text-[11px] transition-colors last:border-b-0 hover:bg-primary/5 hover:text-primary" title={`Abrir ${getVariantLabel(variante)}`}>
+                        <button key={variante.inventarioId} type="button" onPointerMove={updateLiquidGlassPointer} onClick={() => navigate(`/producto/${variante.inventarioId}`)} className="liquid-choice grid w-full grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-3 border-b border-border/40 px-3 py-2 text-left text-[11px] transition-colors last:border-b-0 hover:text-primary" title={`Abrir ${getVariantLabel(variante)}`}>
                           <span className="min-w-0 truncate font-bold">{getVariantLabel(variante)}</span>
                           <span className="font-semibold tabular-nums">{currencyFormatter.format(variante.precioVenta)}</span>
                           <span className={`min-w-12 text-right font-black tabular-nums ${variante.stockActual <= variante.stockMinimo ? "text-rose-500" : "text-emerald-600"}`}>{variante.stockActual} u.</span>
@@ -364,7 +365,7 @@ export function Catalogo() {
               {productosAgrupados.map((producto) => (
                 <div 
                   key={producto.productoId}
-                  className="group flex flex-col md:flex-row items-center gap-4 p-3 bg-card/40 rounded-2xl border border-border/50 hover:bg-card/60 transition-all hover:shadow-lg hover:border-primary/20"
+                  className="liquid-surface group flex flex-col md:flex-row items-center gap-4 p-3 bg-card/40 rounded-2xl border border-border/50 transition-all hover:shadow-lg hover:border-primary/20"
                 >
                   <div className="h-16 w-16 shrink-0 overflow-hidden rounded-xl bg-muted/30">
                     {producto.imagenPathLocal ? (
@@ -402,7 +403,7 @@ export function Catalogo() {
 
                   <div className="w-full overflow-hidden rounded-lg border border-border/50 md:w-[28rem]">
                     {producto.variantesGrupo.map((variante) => (
-                      <button key={variante.inventarioId} type="button" onClick={() => navigate(`/producto/${variante.inventarioId}`)} className="grid w-full grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-3 border-b border-border/40 px-3 py-2 text-left text-xs last:border-b-0 hover:bg-primary/5" title="Abrir variante">
+                      <button key={variante.inventarioId} type="button" onPointerMove={updateLiquidGlassPointer} onClick={() => navigate(`/producto/${variante.inventarioId}`)} className="liquid-choice grid w-full grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-3 border-b border-border/40 px-3 py-2 text-left text-xs last:border-b-0" title="Abrir variante">
                         <span className="truncate font-bold">{getVariantLabel(variante)}</span>
                         <span className="font-semibold tabular-nums">{currencyFormatter.format(variante.precioVenta)}</span>
                         <span className={`min-w-12 text-right font-black tabular-nums ${variante.stockActual <= variante.stockMinimo ? "text-rose-500" : "text-emerald-600"}`}>{variante.stockActual} u.</span>
