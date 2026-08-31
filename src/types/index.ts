@@ -155,6 +155,17 @@ export interface VentaRegistroItem {
   comentario: string;
 }
 
+export interface VentaAnulableItem extends VentaRegistroItem {
+  inventarioId: number;
+  stockActual: number;
+}
+
+export interface VentaAnuladaResultado {
+  registroKey: string;
+  inventarioId: number;
+  stockResultante: number;
+}
+
 export interface RegistroVentasMensual {
   mes: string;
   totalPrograma: number;

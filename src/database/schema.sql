@@ -69,6 +69,9 @@ CREATE TABLE IF NOT EXISTS movimientos_stock (
     costo_unitario REAL NOT NULL DEFAULT 0,
     importe_total REAL NOT NULL DEFAULT 0,
     operacion_id TEXT,
+    anulado_en DATETIME,
+    anulacion_motivo TEXT,
+    anulacion_operacion_id TEXT,
     FOREIGN KEY (inventario_id) REFERENCES inventario (id) ON DELETE CASCADE
 );
 
@@ -90,6 +93,8 @@ CREATE TABLE IF NOT EXISTS venta_detalle (
     cantidad INTEGER NOT NULL,
     precio_unitario REAL NOT NULL DEFAULT 0,
     subtotal REAL NOT NULL DEFAULT 0,
+    anulada_en DATETIME,
+    anulacion_motivo TEXT,
     FOREIGN KEY (venta_id) REFERENCES ventas (id) ON DELETE CASCADE,
     FOREIGN KEY (inventario_id) REFERENCES inventario (id) ON DELETE RESTRICT
 );

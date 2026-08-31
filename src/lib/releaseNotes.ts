@@ -4,6 +4,17 @@ export interface ReleaseNoteSection {
 }
 
 const RELEASE_NOTES: Record<string, ReleaseNoteSection[]> = {
+  "1.2.1": [
+    {
+      title: "Anulacion de ventas",
+      items: [
+        "Vista general suma el boton Anular venta dentro de Acciones rapidas.",
+        "El panel muestra ventas del mes del programa, movimientos de venta y ventas confirmadas de Tiendanube.",
+        "Al anular una venta se devuelve el stock local, se registra la devolucion en Kardex y se actualizan los historiales.",
+        "Despues de anular, el programa intenta subir el stock actualizado a Tiendanube.",
+      ],
+    },
+  ],
   "1.2.0": [
     {
       title: "Interfaz visual",

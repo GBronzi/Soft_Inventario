@@ -4,7 +4,7 @@ import { appDataDir, join } from "@tauri-apps/api/path";
 import schemaSql from "@/database/schema.sql?raw";
 
 const DATABASE_URL = "sqlite:inventario_v4.db";
-const SCHEMA_VERSION = 6;
+const SCHEMA_VERSION = 7;
 
 let databasePromise: Promise<Database> | null = null;
 
@@ -63,6 +63,11 @@ async function addMissingColumns(db: Database) {
     { table: "movimientos_stock", column: "costo_unitario", ddl: "ALTER TABLE movimientos_stock ADD COLUMN costo_unitario REAL NOT NULL DEFAULT 0" },
     { table: "movimientos_stock", column: "importe_total", ddl: "ALTER TABLE movimientos_stock ADD COLUMN importe_total REAL NOT NULL DEFAULT 0" },
     { table: "movimientos_stock", column: "operacion_id", ddl: "ALTER TABLE movimientos_stock ADD COLUMN operacion_id TEXT" },
+    { table: "movimientos_stock", column: "anulado_en", ddl: "ALTER TABLE movimientos_stock ADD COLUMN anulado_en DATETIME" },
+    { table: "movimientos_stock", column: "anulacion_motivo", ddl: "ALTER TABLE movimientos_stock ADD COLUMN anulacion_motivo TEXT" },
+    { table: "movimientos_stock", column: "anulacion_operacion_id", ddl: "ALTER TABLE movimientos_stock ADD COLUMN anulacion_operacion_id TEXT" },
+    { table: "venta_detalle", column: "anulada_en", ddl: "ALTER TABLE venta_detalle ADD COLUMN anulada_en DATETIME" },
+    { table: "venta_detalle", column: "anulacion_motivo", ddl: "ALTER TABLE venta_detalle ADD COLUMN anulacion_motivo TEXT" },
   ];
 
   const columnCache = new Map<string, string[]>();
@@ -236,6 +241,8 @@ async function initializeSchema(db: Database) {
   // migraciones de columnas o normalizaciones de datos.
   await executeStatements(db, getSchemaStatements());
   await addMissingColumns(db);
+  await db.execute("CREATE INDEX IF NOT EXISTS idx_movimientos_anulado ON movimientos_stock (anulado_en)");
+  await db.execute("CREATE INDEX IF NOT EXISTS idx_venta_detalle_anulada ON venta_detalle (anulada_en)");
   await db.execute(
     `UPDATE movimientos_stock
      SET concepto = CASE

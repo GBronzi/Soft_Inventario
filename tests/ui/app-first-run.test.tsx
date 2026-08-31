@@ -20,9 +20,15 @@ vi.mock("@tauri-apps/api/core", () => ({ convertFileSrc: (path: string) => path,
 vi.mock("@tauri-apps/plugin-dialog", () => ({ save: vi.fn().mockResolvedValue(null) }));
 
 vi.mock("@/database/ventas", () => ({
-  getResumenVentasDia: vi.fn().mockResolvedValue({ total: 0, unidades: 0, operaciones: 0, efectivo: 0, transferencia: 0, tarjeta: 0, otro: 0, detalles: [] }),
+  getResumenVentasDia: vi.fn().mockResolvedValue({ total: 0, unidades: 0, operaciones: 0, efectivo: 0, transferencia: 0, tarjeta: 0, otro: 0, tiendanube: 0, movimientos: 0, detalles: [] }),
   getRegistroVentasMensual: vi.fn().mockResolvedValue({ mes: "2026-07", totalPrograma: 0, totalTiendanube: 0, totalGeneral: 0, unidadesPrograma: 0, unidadesTiendanube: 0, unidadesGeneral: 0, registros: [] }),
   guardarComentarioRegistroVenta: vi.fn(),
+  getVentasAnulablesMensual: vi.fn().mockResolvedValue([]),
+  anularVentaRegistro: vi.fn(),
+}));
+
+vi.mock("@/api/tiendanube", () => ({
+  pushInventarioIdATiendanube: vi.fn(),
 }));
 
 import App from "@/App";

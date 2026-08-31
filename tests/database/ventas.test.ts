@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { getDatabase } from "@/database/db";
-import { getRegistroVentasMensual, getResumenVentasDia, guardarComentarioRegistroVenta, registrarVenta } from "@/database/ventas";
+import { anularVentaRegistro, getRegistroVentasMensual, getResumenVentasDia, getVentasAnulablesMensual, guardarComentarioRegistroVenta, registrarVenta } from "@/database/ventas";
 
 vi.mock("@/database/db", () => ({ getDatabase: vi.fn() }));
 vi.mock("@/database/queries", () => ({ notifyMonthlySalesUpdate: vi.fn() }));
@@ -70,6 +70,41 @@ describe("ventas múltiples", () => {
 
     expect(mockDb.execute).toHaveBeenCalledWith(expect.stringContaining("venta_registro_comentarios"), ["PROGRAMA:1", "Entregado con bolsa"]);
   });
+
+  it("devuelve ventas anulables del mes sin incluir anuladas", async () => {
+    mockDb.select.mockResolvedValueOnce([
+      { registroKey: "PROGRAMA:1", origen: "PROGRAMA", inventarioId: 7, stockActual: 3, fecha: "2026-07-06 10:30:00", numero: "V-1", producto: "Perfume", variante: "100 ml", cantidad: 2, precioUnitario: 100, subtotal: 200, medioPago: "EFECTIVO", entradaVenta: "Mostrador", comentario: "" },
+    ]);
+
+    const result = await getVentasAnulablesMensual("2026-07");
+
+    expect(result[0]).toMatchObject({ registroKey: "PROGRAMA:1", inventarioId: 7, stockActual: 3, cantidad: 2 });
+    expect(mockDb.select).toHaveBeenCalledWith(expect.stringContaining("vd.anulada_en IS NULL"), ["2026-07"]);
+    expect(mockDb.select).toHaveBeenCalledWith(expect.stringContaining("m.anulado_en IS NULL"), ["2026-07"]);
+  });
+
+  it("anula una venta del programa, devuelve stock y registra devolucion", async () => {
+    mockDb.select
+      .mockResolvedValueOnce([{ total: 0 }])
+      .mockResolvedValueOnce([{ detalleId: 1, ventaId: 44, numero: "V-1", inventarioId: 7, cantidad: 2, precioUnitario: 100, subtotal: 200, stockActual: 3, costoUnitario: 40 }])
+      .mockResolvedValueOnce([{ total: 0 }]);
+
+    const result = await anularVentaRegistro("PROGRAMA:1", "Cliente devolvio");
+
+    expect(result).toEqual({ registroKey: "PROGRAMA:1", inventarioId: 7, stockResultante: 5 });
+    expect(mockDb.execute).toHaveBeenCalledWith(expect.stringContaining("UPDATE inventario"), [5, 7]);
+    expect(mockDb.execute).toHaveBeenCalledWith(expect.stringContaining("UPDATE venta_detalle"), [expect.stringContaining("Cliente devolvio"), 1]);
+    expect(mockDb.execute).toHaveBeenCalledWith(expect.stringContaining("'DEVOLUCION_CLIENTE'"), [7, 2, 5, expect.stringContaining("Anulacion de venta V-1"), "V-1", 100, 40, 200, "ANULA:PROGRAMA:1"]);
+    expect(mockDb.execute).toHaveBeenCalledWith("UPDATE ventas SET estado = 'ANULADA' WHERE id = $1", [44]);
+  });
+
+  it("no permite anular dos veces la misma venta", async () => {
+    mockDb.select.mockResolvedValueOnce([{ total: 1 }]);
+
+    await expect(anularVentaRegistro("TIENDANUBE:9")).rejects.toThrow("ya fue anulada");
+    expect(mockDb.execute).not.toHaveBeenCalled();
+  });
+
   it("devuelve el resumen y detalle del día por medio de pago", async () => {
     mockDb.select.mockResolvedValueOnce([
       { ventaId: 44, numero: "V-1", fecha: "2026-07-06 10:30:00", origen: "PROGRAMA", producto: "Perfume", variante: "100 ml", cantidad: 1, precioUnitario: 250, subtotal: 250, medioPago: "TRANSFERENCIA" },

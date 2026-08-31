@@ -30,9 +30,15 @@ vi.mock("@tauri-apps/plugin-dialog", () => ({
 }));
 
 vi.mock("@/database/ventas", () => ({
-  getResumenVentasDia: vi.fn().mockResolvedValue({ total: 0, unidades: 0, operaciones: 0, efectivo: 0, transferencia: 0, tarjeta: 0, otro: 0, detalles: [] }),
+  getResumenVentasDia: vi.fn().mockResolvedValue({ total: 0, unidades: 0, operaciones: 0, efectivo: 0, transferencia: 0, tarjeta: 0, otro: 0, tiendanube: 0, movimientos: 0, detalles: [] }),
   getRegistroVentasMensual: vi.fn().mockResolvedValue({ mes: "2026-07", totalPrograma: 0, totalTiendanube: 0, totalGeneral: 0, unidadesPrograma: 0, unidadesTiendanube: 0, unidadesGeneral: 0, registros: [] }),
   guardarComentarioRegistroVenta: vi.fn(),
+  getVentasAnulablesMensual: vi.fn().mockResolvedValue([]),
+  anularVentaRegistro: vi.fn(),
+}));
+
+vi.mock("@/api/tiendanube", () => ({
+  pushInventarioIdATiendanube: vi.fn(),
 }));
 
 import { Dashboard } from "@/pages/Dashboard";
@@ -152,6 +158,14 @@ describe("Dashboard UI", () => {
     renderDashboard();
 
     expect(screen.queryByRole("button", { name: "Venta rápida local" })).toBeNull();
+  });
+
+  it("abre el panel para anular ventas desde acciones rapidas", async () => {
+    renderDashboard();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Anular venta" }));
+
+    expect(await screen.findByText("Anular ventas")).toBeTruthy();
   });
 
   it("navega desde alertas de stock al historial filtrado de la variante", async () => {
