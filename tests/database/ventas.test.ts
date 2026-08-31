@@ -52,8 +52,8 @@ describe("ventas múltiples", () => {
 
   it("devuelve el registro mensual unificado de programa y Tiendanube", async () => {
     mockDb.select.mockResolvedValueOnce([
-      { registroKey: "PROGRAMA:1", origen: "PROGRAMA", fecha: "2026-07-06 10:30:00", numero: "V-1", producto: "Perfume", variante: "100 ml", cantidad: 2, precioUnitario: 100, subtotal: 200, medioPago: "EFECTIVO", entradaVenta: "Mostrador", comentario: "Cliente frecuente" },
-      { registroKey: "TIENDANUBE:9", origen: "TIENDANUBE", fecha: "2026-07-07 11:00:00", numero: "TN-P1-V2", producto: "Perfume TN", variante: "50 ml", cantidad: 1, precioUnitario: 300, subtotal: 300, medioPago: "TIENDANUBE", entradaVenta: "Venta detectada desde Tiendanube", comentario: "" },
+      { registroKey: "PROGRAMA:1", origen: "PROGRAMA", fecha: "2026-07-06 10:30:00", numero: "V-1", producto: "Perfume", marca: "Yves d'Orgeval", variante: "100 ml", cantidad: 2, precioUnitario: 100, subtotal: 200, medioPago: "EFECTIVO", entradaVenta: "Mostrador", comentario: "Cliente frecuente" },
+      { registroKey: "TIENDANUBE:9", origen: "TIENDANUBE", fecha: "2026-07-07 11:00:00", numero: "TN-P1-V2", producto: "Perfume TN", marca: "Lattafa", variante: "50 ml", cantidad: 1, precioUnitario: 300, subtotal: 300, medioPago: "TIENDANUBE", entradaVenta: "Venta detectada desde Tiendanube", comentario: "" },
     ]);
 
     const result = await getRegistroVentasMensual("2026-07");
@@ -61,8 +61,14 @@ describe("ventas múltiples", () => {
     expect(result.totalPrograma).toBe(200);
     expect(result.totalTiendanube).toBe(300);
     expect(result.totalGeneral).toBe(500);
+    expect(result.totalNacional).toBe(200);
+    expect(result.totalArabes).toBe(300);
     expect(result.unidadesGeneral).toBe(3);
+    expect(result.unidadesNacional).toBe(2);
+    expect(result.unidadesArabes).toBe(1);
     expect(mockDb.select).toHaveBeenCalledWith(expect.stringContaining("UNION ALL"), ["2026-07"]);
+    expect(mockDb.select).toHaveBeenCalledWith(expect.stringContaining("m.tipo_movimiento = 'SALIDA'"), ["2026-07"]);
+    expect(mockDb.select).toHaveBeenCalledWith(expect.stringContaining("m.concepto = 'VENTA'"), ["2026-07"]);
   });
 
   it("guarda comentario por clave de registro de venta", async () => {
@@ -81,6 +87,7 @@ describe("ventas múltiples", () => {
     expect(result[0]).toMatchObject({ registroKey: "PROGRAMA:1", inventarioId: 7, stockActual: 3, cantidad: 2 });
     expect(mockDb.select).toHaveBeenCalledWith(expect.stringContaining("vd.anulada_en IS NULL"), ["2026-07"]);
     expect(mockDb.select).toHaveBeenCalledWith(expect.stringContaining("m.anulado_en IS NULL"), ["2026-07"]);
+    expect(mockDb.select).toHaveBeenCalledWith(expect.stringContaining("m.concepto = 'VENTA'"), ["2026-07"]);
   });
 
   it("anula una venta del programa, devuelve stock y registra devolucion", async () => {
@@ -118,5 +125,7 @@ describe("ventas múltiples", () => {
     expect(result.tiendanube).toBe(200);
     expect(result.detalles).toHaveLength(2);
     expect(mockDb.select).toHaveBeenCalledWith(expect.stringContaining("movimientos_stock"), ["2026-07-06"]);
+    expect(mockDb.select).toHaveBeenCalledWith(expect.stringContaining("m.tipo_movimiento = 'SALIDA'"), ["2026-07-06"]);
+    expect(mockDb.select).toHaveBeenCalledWith(expect.stringContaining("m.concepto = 'VENTA'"), ["2026-07-06"]);
   });
 });

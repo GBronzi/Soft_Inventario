@@ -43,7 +43,7 @@ export function UpdateNotifier() {
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/35 p-4 backdrop-blur-[2px] sm:items-center" role="dialog" aria-modal="true" aria-labelledby="update-title">
-      <section className="liquid-surface relative w-full max-w-2xl overflow-hidden rounded-2xl border border-white/20 bg-background shadow-2xl">
+      <section className="update-notifier-panel liquid-surface relative w-full max-w-2xl overflow-hidden rounded-2xl border border-white/20 bg-background shadow-2xl">
         <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-primary via-emerald-500 to-sky-500" />
         <div className="flex items-start gap-4 border-b bg-muted/30 p-5">
           <div className="flex size-12 shrink-0 items-center justify-center rounded-2xl bg-primary/10 text-primary shadow-inner">
@@ -61,17 +61,17 @@ export function UpdateNotifier() {
 
         <div className="max-h-[62vh] overflow-y-auto p-5">
           <div className="grid gap-3 sm:grid-cols-3">
-            <div className="liquid-surface rounded-lg border bg-card p-3">
+            <div className="update-notifier-card liquid-surface rounded-lg border bg-card p-3">
               <ArrowDownToLine className="mb-2 size-4 text-primary" />
               <p className="text-xs font-bold text-muted-foreground">Instalacion</p>
               <p className="text-sm font-black">Descarga firmada</p>
             </div>
-            <div className="liquid-surface rounded-lg border bg-card p-3">
+            <div className="update-notifier-card liquid-surface rounded-lg border bg-card p-3">
               <ShieldCheck className="mb-2 size-4 text-emerald-600" />
               <p className="text-xs font-bold text-muted-foreground">Seguridad</p>
               <p className="text-sm font-black">Respaldo previo</p>
             </div>
-            <div className="liquid-surface rounded-lg border bg-card p-3">
+            <div className="update-notifier-card liquid-surface rounded-lg border bg-card p-3">
               <Clock3 className="mb-2 size-4 text-sky-600" />
               <p className="text-xs font-bold text-muted-foreground">Proceso</p>
               <p className="text-sm font-black">Puede tardar minutos</p>
@@ -80,7 +80,7 @@ export function UpdateNotifier() {
 
           <div className="mt-5 space-y-4">
             {notes.length ? notes.map((section) => (
-              <div key={section.title} className="liquid-surface rounded-xl border bg-card/70 p-4">
+              <div key={section.title} className="update-notifier-card liquid-surface rounded-xl border bg-card/70 p-4">
                 <h3 className="text-sm font-black">{section.title}</h3>
                 <ul className="mt-3 space-y-2">
                   {section.items.map((item) => (
@@ -92,7 +92,7 @@ export function UpdateNotifier() {
                 </ul>
               </div>
             )) : (
-              <div className="liquid-surface rounded-xl border bg-card/70 p-4 text-sm text-muted-foreground">Esta version incluye mejoras y correcciones generales.</div>
+              <div className="update-notifier-card liquid-surface rounded-xl border bg-card/70 p-4 text-sm text-muted-foreground">Esta version incluye mejoras y correcciones generales.</div>
             )}
           </div>
 

@@ -117,6 +117,7 @@ export interface VentaDetalleListado {
   numero: string;
   fecha: string;
   producto: string;
+  marca: string | null;
   variante: string | null;
   cantidad: number;
   precioUnitario: number;
@@ -146,6 +147,7 @@ export interface VentaRegistroItem {
   fecha: string;
   numero: string;
   producto: string;
+  marca: string | null;
   variante: string | null;
   cantidad: number;
   precioUnitario: number;
@@ -171,9 +173,13 @@ export interface RegistroVentasMensual {
   totalPrograma: number;
   totalTiendanube: number;
   totalGeneral: number;
+  totalNacional: number;
+  totalArabes: number;
   unidadesPrograma: number;
   unidadesTiendanube: number;
   unidadesGeneral: number;
+  unidadesNacional: number;
+  unidadesArabes: number;
   registros: VentaRegistroItem[];
 }
 

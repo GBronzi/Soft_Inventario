@@ -4,6 +4,24 @@ export interface ReleaseNoteSection {
 }
 
 const RELEASE_NOTES: Record<string, ReleaseNoteSection[]> = {
+  "1.2.2": [
+    {
+      title: "Registro de ventas",
+      items: [
+        "El Registro de ventas suma una division comercial entre Yves d'Orgeval nacional y Arabes / demas marcas.",
+        "La exportacion Excel incluye marca y clasificacion comercial por cada venta.",
+        "Ventas del dia y Registro de ventas muestran solo ventas reales: no incluyen fallas, roturas, vencidos, regalos, sorteos ni otros movimientos de salida.",
+      ],
+    },
+    {
+      title: "Anulacion y visual",
+      items: [
+        "El panel Anular ventas aclara que trabaja solo con ventas confirmadas.",
+        "Se ajustan textos para diferenciar ventas manuales de otros movimientos de stock.",
+        "La ventana de notas de actualizacion mejora contraste en tema claro, gris y oscuro para que el texto sea legible.",
+      ],
+    },
+  ],
   "1.2.1": [
     {
       title: "Anulacion de ventas",

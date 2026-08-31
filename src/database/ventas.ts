@@ -8,6 +8,20 @@ function optionalText(value?: string) {
   return normalized || null;
 }
 
+const NATIONAL_BRAND = "yves d'orgeval";
+
+function normalizeBrand(value: string | null | undefined) {
+  return (value ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase();
+}
+
+function isNationalBrand(value: string | null | undefined) {
+  return normalizeBrand(value) === NATIONAL_BRAND;
+}
+
 export async function registrarVenta(payload: VentaDraft): Promise<VentaRegistrada> {
   const db = await getDatabase();
   const mediosValidos = new Set(["EFECTIVO", "TRANSFERENCIA", "TARJETA", "OTRO"]);
@@ -81,7 +95,7 @@ export async function getResumenVentasDia(fecha?: string): Promise<ResumenVentas
   const detalles = await db.select<ResumenVentasDia["detalles"]>(
     `SELECT v.id AS ventaId, v.numero AS numero, v.creada_en AS fecha,
         'PROGRAMA' AS origen,
-        p.nombre AS producto, COALESCE(NULLIF(i.capacidad_medida, ''), NULLIF(i.variante, '')) AS variante,
+        p.nombre AS producto, p.marca AS marca, COALESCE(NULLIF(i.capacidad_medida, ''), NULLIF(i.variante, '')) AS variante,
         vd.cantidad AS cantidad, vd.precio_unitario AS precioUnitario,
         vd.subtotal AS subtotal, v.medio_pago AS medioPago
        FROM venta_detalle vd
@@ -103,6 +117,7 @@ export async function getResumenVentasDia(fecha?: string): Promise<ResumenVentas
           ELSE 'PROGRAMA'
         END AS origen,
         p.nombre AS producto,
+        p.marca AS marca,
         COALESCE(NULLIF(i.capacidad_medida, ''), NULLIF(i.variante, '')) AS variante,
         ABS(m.cantidad) AS cantidad,
         COALESCE(NULLIF(m.precio_unitario, 0), i.precio_venta, 0) AS precioUnitario,
@@ -120,7 +135,7 @@ export async function getResumenVentasDia(fecha?: string): Promise<ResumenVentas
       FROM movimientos_stock m
       INNER JOIN inventario i ON i.id = m.inventario_id
       INNER JOIN productos p ON p.id = i.producto_id
-      WHERE m.cantidad < 0
+      WHERE m.tipo_movimiento = 'SALIDA'
         AND m.concepto = 'VENTA'
         AND m.anulado_en IS NULL
         AND DATE(m.fecha_movimiento, 'localtime') = DATE($1)
@@ -161,6 +176,7 @@ export async function getRegistroVentasMensual(mes: string): Promise<RegistroVen
         v.creada_en AS fecha,
         v.numero AS numero,
         p.nombre AS producto,
+        p.marca AS marca,
         COALESCE(NULLIF(i.capacidad_medida, ''), NULLIF(i.variante, '')) AS variante,
         vd.cantidad AS cantidad,
         vd.precio_unitario AS precioUnitario,
@@ -195,6 +211,7 @@ export async function getRegistroVentasMensual(mes: string): Promise<RegistroVen
         m.fecha_movimiento AS fecha,
         COALESCE(NULLIF(m.referencia, ''), 'MOV-' || m.id) AS numero,
         p.nombre AS producto,
+        p.marca AS marca,
         COALESCE(NULLIF(i.capacidad_medida, ''), NULLIF(i.variante, '')) AS variante,
         ABS(m.cantidad) AS cantidad,
         COALESCE(NULLIF(m.precio_unitario, 0), i.precio_venta, 0) AS precioUnitario,
@@ -221,7 +238,7 @@ export async function getRegistroVentasMensual(mes: string): Promise<RegistroVen
         THEN 'TIENDANUBE:' || m.id
         ELSE 'MOVIMIENTO:' || m.id
       END
-      WHERE m.cantidad < 0
+      WHERE m.tipo_movimiento = 'SALIDA'
         AND strftime('%Y-%m', m.fecha_movimiento, 'localtime') = $1
         AND m.concepto = 'VENTA'
         AND m.anulado_en IS NULL
@@ -242,17 +259,25 @@ export async function getRegistroVentasMensual(mes: string): Promise<RegistroVen
   }));
   const totalPrograma = normalized.filter((item) => item.origen === "PROGRAMA").reduce((sum, item) => sum + item.subtotal, 0);
   const totalTiendanube = normalized.filter((item) => item.origen === "TIENDANUBE").reduce((sum, item) => sum + item.subtotal, 0);
+  const totalNacional = normalized.filter((item) => isNationalBrand(item.marca)).reduce((sum, item) => sum + item.subtotal, 0);
+  const totalArabes = normalized.filter((item) => !isNationalBrand(item.marca)).reduce((sum, item) => sum + item.subtotal, 0);
   const unidadesPrograma = normalized.filter((item) => item.origen === "PROGRAMA").reduce((sum, item) => sum + item.cantidad, 0);
   const unidadesTiendanube = normalized.filter((item) => item.origen === "TIENDANUBE").reduce((sum, item) => sum + item.cantidad, 0);
+  const unidadesNacional = normalized.filter((item) => isNationalBrand(item.marca)).reduce((sum, item) => sum + item.cantidad, 0);
+  const unidadesArabes = normalized.filter((item) => !isNationalBrand(item.marca)).reduce((sum, item) => sum + item.cantidad, 0);
 
   return {
     mes: selectedMonth,
     totalPrograma,
     totalTiendanube,
     totalGeneral: totalPrograma + totalTiendanube,
+    totalNacional,
+    totalArabes,
     unidadesPrograma,
     unidadesTiendanube,
     unidadesGeneral: unidadesPrograma + unidadesTiendanube,
+    unidadesNacional,
+    unidadesArabes,
     registros: normalized,
   };
 }
@@ -281,6 +306,7 @@ export async function getVentasAnulablesMensual(mes: string): Promise<VentaAnula
         v.creada_en AS fecha,
         v.numero AS numero,
         p.nombre AS producto,
+        p.marca AS marca,
         COALESCE(NULLIF(i.capacidad_medida, ''), NULLIF(i.variante, '')) AS variante,
         vd.cantidad AS cantidad,
         vd.precio_unitario AS precioUnitario,
@@ -317,6 +343,7 @@ export async function getVentasAnulablesMensual(mes: string): Promise<VentaAnula
         m.fecha_movimiento AS fecha,
         COALESCE(NULLIF(m.referencia, ''), 'MOV-' || m.id) AS numero,
         p.nombre AS producto,
+        p.marca AS marca,
         COALESCE(NULLIF(i.capacidad_medida, ''), NULLIF(i.variante, '')) AS variante,
         ABS(m.cantidad) AS cantidad,
         COALESCE(NULLIF(m.precio_unitario, 0), i.precio_venta, 0) AS precioUnitario,
@@ -343,7 +370,7 @@ export async function getVentasAnulablesMensual(mes: string): Promise<VentaAnula
         THEN 'TIENDANUBE:' || m.id
         ELSE 'MOVIMIENTO:' || m.id
       END
-      WHERE m.cantidad < 0
+      WHERE m.tipo_movimiento = 'SALIDA'
         AND strftime('%Y-%m', m.fecha_movimiento, 'localtime') = $1
         AND m.concepto = 'VENTA'
         AND m.anulado_en IS NULL
@@ -467,7 +494,7 @@ export async function anularVentaRegistro(registroKey: string, motivo?: string):
       FROM movimientos_stock m
       INNER JOIN inventario i ON i.id = m.inventario_id
       WHERE m.id = $1
-        AND m.cantidad < 0
+        AND m.tipo_movimiento = 'SALIDA'
         AND m.concepto = 'VENTA'
         AND m.anulado_en IS NULL`,
     [movimientoId],

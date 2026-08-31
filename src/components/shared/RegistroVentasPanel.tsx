@@ -22,13 +22,27 @@ function csvValue(value: string | number | null | undefined) {
   return `"${text}"`;
 }
 
+function normalizeBrand(value: string | null | undefined) {
+  return (value ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase();
+}
+
+function getSalesClassification(marca: string | null | undefined) {
+  return normalizeBrand(marca) === "yves d'orgeval" ? "Yves d'Orgeval" : "Arabes / demas marcas";
+}
+
 function buildExcelCsv(summary: RegistroVentasMensual) {
-  const headers = ["Fecha", "Origen", "Entrada", "Producto", "Variante", "Cantidad", "Precio unitario", "Subtotal", "Medio de pago", "Comentario"];
+  const headers = ["Fecha", "Origen", "Entrada", "Producto", "Marca", "Clasificacion", "Variante", "Cantidad", "Precio unitario", "Subtotal", "Medio de pago", "Comentario"];
   const rows = summary.registros.map((item) => [
     item.fecha,
     item.origen === "PROGRAMA" ? "Programa" : "Tiendanube",
     item.entradaVenta,
     item.producto,
+    item.marca ?? "",
+    getSalesClassification(item.marca),
     item.variante ?? "",
     item.cantidad,
     item.precioUnitario,
@@ -36,7 +50,9 @@ function buildExcelCsv(summary: RegistroVentasMensual) {
     item.medioPago,
     item.comentario,
   ]);
-  rows.push(["", "", "", "", "TOTAL", summary.unidadesGeneral, "", summary.totalGeneral, "", ""]);
+  rows.push(["", "", "", "", "", "", "TOTAL GENERAL", summary.unidadesGeneral, "", summary.totalGeneral, "", ""]);
+  rows.push(["", "", "", "", "", "", "YVES D'ORGEVAL", summary.unidadesNacional, "", summary.totalNacional, "", ""]);
+  rows.push(["", "", "", "", "", "", "ARABES / DEMAS MARCAS", summary.unidadesArabes, "", summary.totalArabes, "", ""]);
   return `\uFEFF${[headers, ...rows].map((row) => row.map(csvValue).join(",")).join("\r\n")}`;
 }
 
@@ -94,6 +110,10 @@ export function RegistroVentasPanel({ open, onClose, formatCurrency }: Props) {
     programa: summary?.totalPrograma ?? 0,
     tiendanube: summary?.totalTiendanube ?? 0,
     unidades: summary?.unidadesGeneral ?? 0,
+    nacional: summary?.totalNacional ?? 0,
+    arabes: summary?.totalArabes ?? 0,
+    unidadesNacional: summary?.unidadesNacional ?? 0,
+    unidadesArabes: summary?.unidadesArabes ?? 0,
   }), [summary]);
 
   async function saveComment(item: VentaRegistroItem) {
@@ -135,7 +155,7 @@ export function RegistroVentasPanel({ open, onClose, formatCurrency }: Props) {
             <span className="flex size-8 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-700"><ShoppingBag className="size-4" /></span>
             Registro de ventas
           </CardTitle>
-          <CardDescription>Ventas registradas por el programa y bajas detectadas desde Tiendanube.</CardDescription>
+          <CardDescription>Ventas registradas por el programa y ventas confirmadas desde Tiendanube.</CardDescription>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Input type="month" value={month} onChange={(event) => setMonth(event.target.value || currentMonth())} className="h-10 w-40" />
@@ -149,6 +169,19 @@ export function RegistroVentasPanel({ open, onClose, formatCurrency }: Props) {
           <div className="rounded-xl border bg-background/70 p-3"><p className="text-[10px] font-bold uppercase text-muted-foreground">Programa</p><p className="mt-1 font-black text-emerald-700">{formatCurrency(totals.programa)}</p></div>
           <div className="rounded-xl border bg-background/70 p-3"><p className="text-[10px] font-bold uppercase text-muted-foreground">Tiendanube</p><p className="mt-1 font-black text-sky-700">{formatCurrency(totals.tiendanube)}</p></div>
           <div className="rounded-xl border bg-background/70 p-3"><p className="text-[10px] font-bold uppercase text-muted-foreground">Unidades</p><p className="mt-1 font-black">{totals.unidades} u.</p></div>
+        </div>
+
+        <div className="grid gap-3 md:grid-cols-2">
+          <div className="rounded-xl border border-amber-500/20 bg-amber-500/10 p-3">
+            <p className="text-[10px] font-bold uppercase text-amber-700">Yves d&apos;Orgeval / nacional</p>
+            <p className="mt-1 text-lg font-black">{formatCurrency(totals.nacional)}</p>
+            <p className="text-xs text-muted-foreground">{totals.unidadesNacional} unidades vendidas</p>
+          </div>
+          <div className="rounded-xl border border-indigo-500/20 bg-indigo-500/10 p-3">
+            <p className="text-[10px] font-bold uppercase text-indigo-700">Arabes / demas marcas</p>
+            <p className="mt-1 text-lg font-black">{formatCurrency(totals.arabes)}</p>
+            <p className="text-xs text-muted-foreground">{totals.unidadesArabes} unidades vendidas</p>
+          </div>
         </div>
 
         {status && <div className="rounded-lg border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">{status}</div>}
@@ -171,7 +204,7 @@ export function RegistroVentasPanel({ open, onClose, formatCurrency }: Props) {
                 <TableRow key={item.registroKey} className="align-top">
                   <TableCell className="whitespace-nowrap text-xs"><p className="font-semibold">{formatDatabaseDate(item.fecha)}</p><p className="text-muted-foreground">{formatDatabaseTime(item.fecha)}</p></TableCell>
                   <TableCell><Badge variant="outline" className={item.origen === "PROGRAMA" ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-700" : "border-sky-500/30 bg-sky-500/10 text-sky-700"}>{item.origen === "PROGRAMA" ? "Programa" : "Tiendanube"}</Badge><p className="mt-1 max-w-52 truncate text-xs text-muted-foreground" title={item.entradaVenta}>{item.entradaVenta}</p></TableCell>
-                  <TableCell><p className="font-semibold">{item.producto}</p><p className="text-xs text-muted-foreground">{item.variante || "Presentación principal"} · {item.numero}</p></TableCell>
+                  <TableCell><p className="font-semibold">{item.producto}</p><p className="text-xs text-muted-foreground">{item.variante || "Presentación principal"} · {item.marca || "Sin marca"} · {item.numero}</p></TableCell>
                   <TableCell className="text-right font-bold">{item.cantidad} u.</TableCell>
                   <TableCell className="text-right font-black">{formatCurrency(item.subtotal)}</TableCell>
                   <TableCell><Textarea value={draftComments[item.registroKey] ?? ""} onChange={(event) => setDraftComments((current) => ({ ...current, [item.registroKey]: event.target.value }))} placeholder="Agregar comentario" className="min-h-16 resize-none" /></TableCell>

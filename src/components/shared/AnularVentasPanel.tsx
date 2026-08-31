@@ -94,7 +94,7 @@ export function AnularVentasPanel({ open, onClose, onCancelled, formatCurrency }
             <span className="flex size-8 items-center justify-center rounded-lg bg-rose-500/10 text-rose-700"><RotateCcw className="size-4" /></span>
             Anular ventas
           </CardTitle>
-          <CardDescription>Devuelve stock y registra la anulacion en Kardex, movimientos y resumen mensual.</CardDescription>
+          <CardDescription>Lista solo ventas confirmadas; al anular devuelve stock y registra la devolucion en Kardex.</CardDescription>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Input type="month" value={month} onChange={(event) => setMonth(event.target.value || currentMonth())} className="h-10 w-40" />
