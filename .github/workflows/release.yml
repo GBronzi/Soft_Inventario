@@ -35,20 +35,20 @@ jobs:
           tagName: ${{ github.ref_name }}
           releaseName: "Inventario App ${{ github.ref_name }}"
           releaseBody: |
-            ## Registro de ventas
-            - El Registro de ventas suma una division comercial entre Yves d'Orgeval nacional y Arabes / demas marcas.
-            - La exportacion Excel incluye marca y clasificacion comercial por cada venta.
-            - Ventas del dia y Registro de ventas muestran solo ventas reales: no incluyen fallas, roturas, vencidos, regalos, sorteos ni otros movimientos de salida.
+            ## Sincronizacion Tiendanube
+            - Se evita que una venta repetida de Tiendanube se registre dos veces en Kardex, Registro de ventas o Ventas del dia.
+            - Si Tiendanube reenvia el mismo aviso de venta, el programa lo reconoce por operacion y omite el duplicado sin volver a descontar stock.
+            - Los movimientos anulados dejan de aparecer en los historiales operativos normales.
 
-            ## Anulacion y visual
-            - El panel Anular ventas aclara que trabaja solo con ventas confirmadas.
-            - Se ajustan textos para diferenciar ventas manuales de otros movimientos de stock.
-            - La ventana de notas de actualizacion mejora contraste en tema claro, gris y oscuro para que el texto sea legible.
+            ## Movimientos y visual
+            - La ventana Movimientos reorganiza el registro en una tarjeta centrada y mas clara.
+            - Las cantidades de movimientos se muestran en verde para entradas o ajustes positivos y en rojo para salidas o ajustes negativos.
+            - Se corrige el login para mostrar un solo boton de ver u ocultar contrasena.
 
             ## Importante
             - Esta actualizacion no elimina ni reinicia la base local del cliente.
             - Se mantiene el flujo de revision antes de aplicar cambios desde Tiendanube.
-            - Las ventas pendientes, rechazadas o canceladas de Tiendanube no se registran como ventas ni modifican stock.
+            - Las ventas repetidas de Tiendanube no vuelven a modificar stock si ya fueron aplicadas.
           releaseDraft: false
           prerelease: false
           uploadUpdaterJson: true

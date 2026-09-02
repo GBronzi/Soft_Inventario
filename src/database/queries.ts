@@ -358,7 +358,7 @@ export async function getProductoByCodigoBarras(codigoBarras: string): Promise<P
 
 export async function getMovimientos(filters: MovimientosFilters = {}): Promise<MovimientoListado[]> {
   const db = await getDatabase();
-  const whereClauses: string[] = [];
+  const whereClauses: string[] = ["m.anulado_en IS NULL"];
   const bindValues: unknown[] = [];
 
   if (filters.inventarioId && Number.isInteger(filters.inventarioId)) {
@@ -1370,6 +1370,28 @@ export async function aplicarStockDesdeTiendanube(payload: {
   importeTotal?: number;
 }): Promise<void> {
   const db = await getDatabase();
+  const tipoMovimiento = payload.tipoMovimiento ?? "AJUSTE";
+  const concepto = payload.concepto ?? "SINCRONIZACION_TN";
+  const syncReference = `TN-P${payload.tnProductId}-V${payload.tnVariantId}`;
+  const referencia = payload.referencia?.trim() || syncReference;
+
+  if (tipoMovimiento === "SALIDA" && concepto === "VENTA") {
+    const existingSale = await db.select<Array<{ total: number }>>(
+      `SELECT COUNT(*) AS total
+         FROM movimientos_stock
+        WHERE inventario_id = $1
+          AND tipo_movimiento = 'SALIDA'
+          AND concepto = 'VENTA'
+          AND operacion_id = $2
+          AND anulado_en IS NULL`,
+      [payload.inventarioId, referencia],
+    );
+
+    if (Number(existingSale[0]?.total ?? 0) > 0) {
+      return;
+    }
+  }
+
   const rows = await db.select<Array<{ stockActual: number; precioCompra: number | null; precioVenta: number | null }>>(
     "SELECT COALESCE(stock_actual, 0) AS stockActual, precio_compra AS precioCompra, precio_venta AS precioVenta FROM inventario WHERE id = $1 LIMIT 1",
     [payload.inventarioId],
@@ -1381,10 +1403,6 @@ export async function aplicarStockDesdeTiendanube(payload: {
   const nextStock = Number(payload.stock ?? 0);
   const stockDelta = nextStock - previousStock;
   const nextPrice = typeof payload.precioVenta === "number" ? payload.precioVenta : Number(current.precioVenta ?? 0);
-  const syncReference = `TN-P${payload.tnProductId}-V${payload.tnVariantId}`;
-  const tipoMovimiento = payload.tipoMovimiento ?? "AJUSTE";
-  const concepto = payload.concepto ?? "SINCRONIZACION_TN";
-  const referencia = payload.referencia?.trim() || syncReference;
   const motivo = payload.motivo?.trim() || `Ajuste por sincronizacion Tiendanube (${previousStock} -> ${nextStock})`;
   const importeTotal = Math.max(0, Number(payload.importeTotal ?? 0));
 
@@ -1415,6 +1433,30 @@ export async function aplicarStockDesdeTiendanube(payload: {
       ],
     );
   }
+}
+
+export async function hasActiveMovimientoStockOperacion(payload: {
+  inventarioId: number;
+  tipoMovimiento: "ENTRADA" | "SALIDA" | "AJUSTE";
+  concepto: MovimientoConcepto;
+  operacionId: string;
+}): Promise<boolean> {
+  const operacionId = payload.operacionId.trim();
+  if (!operacionId) return false;
+
+  const db = await getDatabase();
+  const rows = await db.select<Array<{ total: number }>>(
+    `SELECT COUNT(*) AS total
+       FROM movimientos_stock
+      WHERE inventario_id = $1
+        AND tipo_movimiento = $2
+        AND concepto = $3
+        AND operacion_id = $4
+        AND anulado_en IS NULL`,
+    [payload.inventarioId, payload.tipoMovimiento, payload.concepto, operacionId],
+  );
+
+  return Number(rows[0]?.total ?? 0) > 0;
 }
 
 export async function aplicarPrecioDesdeTiendanube(payload: {

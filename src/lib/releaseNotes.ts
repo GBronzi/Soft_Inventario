@@ -4,6 +4,24 @@ export interface ReleaseNoteSection {
 }
 
 const RELEASE_NOTES: Record<string, ReleaseNoteSection[]> = {
+  "1.2.3": [
+    {
+      title: "Sincronizacion Tiendanube",
+      items: [
+        "Se evita que una venta repetida de Tiendanube se registre dos veces en Kardex, Registro de ventas o Ventas del dia.",
+        "Si Tiendanube reenvia el mismo aviso de venta, el programa lo reconoce por operacion y omite el duplicado sin volver a descontar stock.",
+        "Los movimientos anulados dejan de aparecer en los historiales operativos normales.",
+      ],
+    },
+    {
+      title: "Movimientos y visual",
+      items: [
+        "La ventana Movimientos reorganiza el registro en una tarjeta centrada y mas clara.",
+        "Las cantidades de movimientos se muestran en verde para entradas o ajustes positivos y en rojo para salidas o ajustes negativos.",
+        "Se corrige el login para mostrar un solo boton de ver u ocultar contrasena.",
+      ],
+    },
+  ],
   "1.2.2": [
     {
       title: "Registro de ventas",

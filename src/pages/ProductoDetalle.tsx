@@ -37,7 +37,7 @@ import {
 } from "@/components/ui/table";
 import { getMovimientosByInventarioId, getProductoByInventarioId, getProductoCategorias, getVariantesByProductoId } from "@/database/queries";
 import { formatDatabaseDate, formatDatabaseTime } from "@/lib/datetime";
-import { buildMovimientosRoute, buildRepeatMovimientoRoute, buildVentaRapidaRoute } from "@/lib/movimientos";
+import { buildMovimientosRoute, buildRepeatMovimientoRoute, buildVentaRapidaRoute, formatMovimientoQuantity, getMovimientoQuantityTone } from "@/lib/movimientos";
 import type { CategoriaRef, MovimientoListado, ProductoDetalle as ProductoDetalleType, ProductoVarianteResumen } from "@/types";
 
 const KARDEX_PAGE_SIZE = 15;
@@ -427,15 +427,17 @@ export function ProductoDetalle() {
                         <TableCell colSpan={6} className="h-40 text-center text-muted-foreground italic">No hay movimientos registrados</TableCell>
                       </TableRow>
                     ) : (
-                      movimientos.map(m => (
+                      movimientos.map(m => {
+                        const quantityTone = getMovimientoQuantityTone(m);
+                        return (
                         <TableRow key={m.id} className="border-border/30 hover:bg-primary/5 transition-colors group">
                            <TableCell className="pl-6">
                               <Badge variant={m.tipoMovimiento === 'ENTRADA' ? 'secondary' : m.tipoMovimiento === 'SALIDA' ? 'destructive' : 'outline'} className="text-[9px] h-5 border-none">
                                 {m.tipoMovimiento}
                               </Badge>
                            </TableCell>
-                           <TableCell className={`font-black text-sm ${m.tipoMovimiento === 'ENTRADA' || (m.tipoMovimiento === 'AJUSTE' && m.cantidad > 0) ? 'text-emerald-500' : m.tipoMovimiento === 'SALIDA' || (m.tipoMovimiento === 'AJUSTE' && m.cantidad < 0) ? 'text-rose-500' : 'text-primary'}`}>
-                              {m.tipoMovimiento === 'ENTRADA' || (m.tipoMovimiento === 'AJUSTE' && m.cantidad > 0) ? '+' : m.tipoMovimiento === 'SALIDA' || (m.tipoMovimiento === 'AJUSTE' && m.cantidad < 0) ? '-' : ''}{Math.abs(m.cantidad)}
+                           <TableCell className={`font-black text-sm tabular-nums ${quantityTone.className}`}>
+                              {formatMovimientoQuantity(m)}
                            </TableCell>
                            <TableCell className="font-medium">{m.stockResultante}</TableCell>
                            <TableCell>
@@ -454,7 +456,8 @@ export function ProductoDetalle() {
                               </Button>
                            </TableCell>
                         </TableRow>
-                      ))
+                        );
+                      })
                     )}
                   </TableBody>
                </Table>

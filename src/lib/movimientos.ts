@@ -29,6 +29,22 @@ export function getConceptoLabel(concepto: MovimientoConcepto) {
   return Object.values(CONCEPTOS_POR_TIPO).flat().find((option) => option.value === concepto)?.label ?? concepto;
 }
 
+export function getMovimientoQuantityTone(movimiento: Pick<MovimientoListado, "tipoMovimiento" | "cantidad">) {
+  const cantidad = Number(movimiento.cantidad);
+  const isPositive = movimiento.tipoMovimiento === "ENTRADA" || (movimiento.tipoMovimiento === "AJUSTE" && cantidad > 0);
+  const isNegative = movimiento.tipoMovimiento === "SALIDA" || (movimiento.tipoMovimiento === "AJUSTE" && cantidad < 0);
+
+  if (isPositive) return { className: "movement-quantity-positive text-emerald-600 dark:text-emerald-400", prefix: "+" };
+  if (isNegative) return { className: "movement-quantity-negative text-rose-600 dark:text-rose-400", prefix: "-" };
+
+  return { className: "text-muted-foreground", prefix: "" };
+}
+
+export function formatMovimientoQuantity(movimiento: Pick<MovimientoListado, "tipoMovimiento" | "cantidad">) {
+  const tone = getMovimientoQuantityTone(movimiento);
+  return `${tone.prefix}${Math.abs(Number(movimiento.cantidad) || 0)}`;
+}
+
 export const VENTA_RAPIDA_LOCAL_MOTIVO = "Venta rápida local";
 export const VENTA_RAPIDA_LOCAL_REFERENCIA = "VENTA_RAPIDA_LOCAL";
 

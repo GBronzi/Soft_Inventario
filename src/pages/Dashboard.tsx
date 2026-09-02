@@ -16,7 +16,7 @@ import { TIENDANUBE_SYNCED_EVENT } from "@/hooks/useTiendanubeSync";
 import { getResumenVentasDia } from "@/database/ventas";
 import { localDateKey, localMonthKey } from "@/lib/datetime";
 import { updateLiquidGlassPointer } from "@/lib/liquidGlass";
-import { buildMovimientosRoute, buildRepeatMovimientoRoute } from "@/lib/movimientos";
+import { buildMovimientosRoute, buildRepeatMovimientoRoute, formatMovimientoQuantity, getMovimientoQuantityTone } from "@/lib/movimientos";
 import type { DashboardStats, GastoRegistro, LicenseStatus, MovimientoListado, ResumenMensualMovimientos, ResumenVentasDia, StockAlert } from "@/types";
 
 const GASTOS_STORAGE_KEY = "soft_inventario_gastos";
@@ -319,7 +319,9 @@ export function Dashboard() {
             </div>
           ) : (
             <div className="grid gap-3 sm:grid-cols-1">
-              {movimientos.map((movimiento) => (
+              {movimientos.map((movimiento) => {
+                const quantityTone = getMovimientoQuantityTone(movimiento);
+                return (
                 <div key={movimiento.id} className="group flex items-center justify-between rounded-2xl border border-border/50 bg-background/40 p-4 transition-all hover:bg-muted/30">
                   <div className="flex flex-col">
                     <span className="font-bold text-foreground">{movimiento.producto}</span>
@@ -330,8 +332,8 @@ export function Dashboard() {
                   </div>
                   
                   <div className="flex flex-col items-end gap-2">
-                    <span className={`text-lg font-black ${movimiento.tipoMovimiento === "ENTRADA" || (movimiento.tipoMovimiento === "AJUSTE" && movimiento.cantidad > 0) ? "text-emerald-500" : "text-rose-500"}`}>
-                      {movimiento.tipoMovimiento === "ENTRADA" || (movimiento.tipoMovimiento === "AJUSTE" && movimiento.cantidad > 0) ? "+" : "-"}{Math.abs(movimiento.cantidad)}
+                    <span className={`text-lg font-black tabular-nums ${quantityTone.className}`}>
+                      {formatMovimientoQuantity(movimiento)}
                     </span>
                     <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                        <Button onClick={() => navigate(`/producto/${movimiento.inventarioId}`)} size="xs" variant="ghost">Ver</Button>
@@ -340,7 +342,8 @@ export function Dashboard() {
                     </div>
                   </div>
                 </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </CardContent>

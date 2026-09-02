@@ -4,6 +4,7 @@ import {
   aplicarStockDesdeTiendanube,
   getCatalogoProductos,
   getCategoriasArbol,
+  hasActiveMovimientoStockOperacion,
   setTnUpdatedAt,
   upsertCategorias,
   upsertProductoDesdeTiendanube,
@@ -1129,6 +1130,18 @@ export async function aplicarCambiosSeleccionadosTiendanube(
         const orderRefs = cambio.orderMatches?.length
           ? cambio.orderMatches.map((order) => `#${order.number}`).join(", ")
           : null;
+        const saleReference = isTiendanubeSale && orderRefs ? `Tiendanube ${orderRefs}` : null;
+        if (isTiendanubeSale && saleReference && await hasActiveMovimientoStockOperacion({
+          inventarioId: cambio.inventarioId,
+          tipoMovimiento: "SALIDA",
+          concepto: "VENTA",
+          operacionId: saleReference,
+        })) {
+          onProgress(`Venta ${saleReference} ya estaba aplicada para "${cambio.producto}". Se omite el duplicado.`);
+          await markPendingTiendanubeChange(cambio.queueId, "APLICADO");
+          aplicados++;
+          continue;
+        }
         if (isTiendanubeSale && saleUnits > 0 && cambio.localStock != null) {
           const stockBeforeSale = Number(cambio.remoteStock) + saleUnits;
           if (stockBeforeSale !== Number(cambio.localStock)) {
@@ -1150,7 +1163,7 @@ export async function aplicarCambiosSeleccionadosTiendanube(
           tipoMovimiento: isTiendanubeSale ? "SALIDA" : undefined,
           concepto: isTiendanubeSale ? "VENTA" : undefined,
           motivo: isTiendanubeSale ? cambio.detalle : undefined,
-          referencia: isTiendanubeSale && orderRefs ? `Tiendanube ${orderRefs}` : undefined,
+          referencia: saleReference ?? undefined,
           importeTotal: isTiendanubeSale ? saleUnits * unitPrice : undefined,
         });
         await markPendingTiendanubeChange(cambio.queueId, "APLICADO");
