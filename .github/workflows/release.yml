@@ -36,19 +36,19 @@ jobs:
           releaseName: "Inventario App ${{ github.ref_name }}"
           releaseBody: |
             ## Sincronizacion Tiendanube
-            - Se ajusta la tabla del Panel de sincronizacion para evitar que el tipo de cambio invada la columna Producto / Variante.
-            - La columna Tipo ahora tiene mas ancho y mantiene etiquetas como Venta Tiendanube en una sola linea.
-            - Se mantiene la distribucion de tarjetas de Sincronizacion y Direcciones separadas en la primera fila.
+            - Las ventas de Tiendanube ya aplicadas se filtran por numero de orden individual antes de mostrarse como pendientes.
+            - Una venta antigua devuelta por Tiendanube por updated_at ya no se mezcla con una venta nueva si ya estaba registrada.
+            - Se reconocen tambien referencias antiguas combinadas, por ejemplo Tiendanube #180, #160, para evitar duplicados.
 
             ## Control operativo
-            - Los botones Programa, Tienda nube y Descartar quedan mas compactos dentro de cada fila.
-            - Se mejora la lectura de filas largas sin cambiar la logica de sincronizacion.
-            - Programa sigue tomando el cambio desde Tiendanube y Tienda nube sigue enviando el valor local.
+            - Al aplicar ventas de Tiendanube, cada orden se registra por separado con su referencia propia.
+            - Si una venta vieja no existia localmente, se registra con la fecha real del pedido Tiendanube, no con la fecha de sincronizacion.
+            - Se mantiene la proteccion para no descontar stock dos veces por la misma orden.
 
             ## Importante
             - Esta actualizacion no elimina ni reinicia la base local del cliente.
-            - No cambia la logica de stock ni ventas; es un ajuste visual de tabla.
-            - Descartar sigue limpiando el aviso pendiente sin modificar productos ni movimientos.
+            - No corrige automaticamente movimientos historicos ya grabados con fecha incorrecta; evita que el problema se repita en nuevas sincronizaciones.
+            - Si una venta vieja ya quedo registrada mal en la base del cliente, debe corregirse con un ajuste puntual de base.
           releaseDraft: false
           prerelease: false
           uploadUpdaterJson: true

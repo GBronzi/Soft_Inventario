@@ -1368,6 +1368,7 @@ export async function aplicarStockDesdeTiendanube(payload: {
   motivo?: string;
   referencia?: string;
   importeTotal?: number;
+  fechaMovimiento?: string;
 }): Promise<void> {
   const db = await getDatabase();
   const tipoMovimiento = payload.tipoMovimiento ?? "AJUSTE";
@@ -1382,7 +1383,12 @@ export async function aplicarStockDesdeTiendanube(payload: {
         WHERE inventario_id = $1
           AND tipo_movimiento = 'SALIDA'
           AND concepto = 'VENTA'
-          AND operacion_id = $2
+          AND (
+            operacion_id = $2
+            OR operacion_id LIKE $2 || ',%'
+            OR operacion_id LIKE '%, ' || $2
+            OR operacion_id LIKE '%, ' || $2 || ',%'
+          )
           AND anulado_en IS NULL`,
       [payload.inventarioId, referencia],
     );
@@ -1414,11 +1420,12 @@ export async function aplicarStockDesdeTiendanube(payload: {
   );
 
   if (stockDelta !== 0) {
+    const fechaMovimiento = payload.fechaMovimiento?.trim() || null;
     await db.execute(
       `INSERT INTO movimientos_stock (
         inventario_id, tipo_movimiento, concepto, cantidad, stock_resultante,
-        motivo, referencia, precio_unitario, costo_unitario, importe_total, operacion_id
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $7)`,
+        motivo, referencia, precio_unitario, costo_unitario, importe_total, operacion_id, fecha_movimiento
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $7, COALESCE($11, CURRENT_TIMESTAMP))`,
       [
         payload.inventarioId,
         tipoMovimiento,
@@ -1430,6 +1437,7 @@ export async function aplicarStockDesdeTiendanube(payload: {
         nextPrice,
         Number(current.precioCompra ?? 0),
         importeTotal,
+        fechaMovimiento,
       ],
     );
   }
@@ -1451,7 +1459,12 @@ export async function hasActiveMovimientoStockOperacion(payload: {
       WHERE inventario_id = $1
         AND tipo_movimiento = $2
         AND concepto = $3
-        AND operacion_id = $4
+        AND (
+          operacion_id = $4
+          OR operacion_id LIKE $4 || ',%'
+          OR operacion_id LIKE '%, ' || $4
+          OR operacion_id LIKE '%, ' || $4 || ',%'
+        )
         AND anulado_en IS NULL`,
     [payload.inventarioId, payload.tipoMovimiento, payload.concepto, operacionId],
   );
