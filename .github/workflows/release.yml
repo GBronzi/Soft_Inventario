@@ -36,19 +36,20 @@ jobs:
           releaseName: "Inventario App ${{ github.ref_name }}"
           releaseBody: |
             ## Sincronizacion Tiendanube
-            - Se evita que una venta repetida de Tiendanube se registre dos veces en Kardex, Registro de ventas o Ventas del dia.
-            - Si Tiendanube reenvia el mismo aviso de venta, el programa lo reconoce por operacion y omite el duplicado sin volver a descontar stock.
-            - Los movimientos anulados dejan de aparecer en los historiales operativos normales.
+            - La revision de cambios ahora permite resolver cada fila de forma individual.
+            - Se agrega la opcion Programa para enviar a Tiendanube el valor local correcto en cambios de datos, stock o precio.
+            - Se agrega la opcion Descartar para quitar avisos pendientes que no se quieran aplicar, sin tocar el stock local ni Tiendanube.
+            - Se reducen avisos innecesarios de categoria cuando Tiendanube y el programa tienen nombres equivalentes aunque los IDs internos difieran.
 
-            ## Movimientos y visual
-            - La ventana Movimientos reorganiza el registro en una tarjeta centrada y mas clara.
-            - Las cantidades de movimientos se muestran en verde para entradas o ajustes positivos y en rojo para salidas o ajustes negativos.
-            - Se corrige el login para mostrar un solo boton de ver u ocultar contrasena.
+            ## Control operativo
+            - El boton Usar valores del programa ya no queda limitado solo a datos generales.
+            - Los cambios resueltos se retiran de la lista sin borrar el resto de revisiones pendientes.
+            - Se conserva el flujo de revision antes de tomar cambios desde Tiendanube.
 
             ## Importante
             - Esta actualizacion no elimina ni reinicia la base local del cliente.
-            - Se mantiene el flujo de revision antes de aplicar cambios desde Tiendanube.
-            - Las ventas repetidas de Tiendanube no vuelven a modificar stock si ya fueron aplicadas.
+            - Usar Programa actualiza Tiendanube con el valor local seleccionado.
+            - Descartar solo limpia el aviso pendiente; no modifica productos ni movimientos.
           releaseDraft: false
           prerelease: false
           uploadUpdaterJson: true
