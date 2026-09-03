@@ -1,11 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { mockAplicarPrecioDesdeTiendanube, mockAplicarStockDesdeTiendanube, mockGetCatalogoProductos, mockGetCategoriasArbol, mockFetch, mockSetTnUpdatedAt, mockUpsertCategorias, mockUpsertProductoDesdeTiendanube, mockQueueDb, pendingQueue } = vi.hoisted(() => ({
+const { mockAplicarPrecioDesdeTiendanube, mockAplicarStockDesdeTiendanube, mockGetCatalogoProductos, mockGetCategoriasArbol, mockFetch, mockHasActiveMovimientoStockOperacion, mockSetTnUpdatedAt, mockUpsertCategorias, mockUpsertProductoDesdeTiendanube, mockQueueDb, pendingQueue } = vi.hoisted(() => ({
   mockAplicarPrecioDesdeTiendanube: vi.fn(),
   mockAplicarStockDesdeTiendanube: vi.fn(),
   mockGetCatalogoProductos: vi.fn(),
   mockGetCategoriasArbol: vi.fn(),
   mockFetch: vi.fn(),
+  mockHasActiveMovimientoStockOperacion: vi.fn(),
   mockSetTnUpdatedAt: vi.fn(),
   mockUpsertCategorias: vi.fn(),
   mockUpsertProductoDesdeTiendanube: vi.fn(),
@@ -52,6 +53,7 @@ vi.mock("@/database/queries", () => ({
   aplicarStockDesdeTiendanube: mockAplicarStockDesdeTiendanube,
   getCatalogoProductos: mockGetCatalogoProductos,
   getCategoriasArbol: mockGetCategoriasArbol,
+  hasActiveMovimientoStockOperacion: mockHasActiveMovimientoStockOperacion,
   setTnUpdatedAt: mockSetTnUpdatedAt,
   upsertCategorias: mockUpsertCategorias,
   upsertProductoDesdeTiendanube: mockUpsertProductoDesdeTiendanube,
@@ -75,6 +77,8 @@ beforeEach(() => {
   pendingQueue.length = 0;
   mockQueueDb.execute.mockClear();
   mockQueueDb.select.mockClear();
+  mockHasActiveMovimientoStockOperacion.mockReset();
+  mockHasActiveMovimientoStockOperacion.mockResolvedValue(false);
 });
 
 describe("buildTiendanubeProductMetadataPayload", () => {

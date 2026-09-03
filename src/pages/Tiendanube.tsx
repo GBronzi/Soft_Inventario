@@ -19,6 +19,7 @@ import {
 import {
   acknowledgeTiendanubeWebhookEvents,
   aplicarCambiosSeleccionadosTiendanube,
+  descartarCambiosSeleccionadosTiendanube,
   enviarDatosLocalesSeleccionadosATiendanube,
   clearTiendanubeCredentials,
   getPollConfig,
@@ -71,6 +72,10 @@ function formatStock(value: number | null) {
   return `${value} u.`;
 }
 
+function canPushLocalChange(cambio: TiendanubeSyncChange) {
+  return cambio.type === "DATOS" || cambio.type === "STOCK" || cambio.type === "PRECIO";
+}
+
 export function Tiendanube() {
   const [status, setStatus] = useState<TiendanubeSyncStatus | null>(null);
   const [creds, setCreds] = useState<ReturnType<typeof getTiendanubeCredentials>>(null);
@@ -86,7 +91,7 @@ export function Tiendanube() {
   const [pollConfig, setPollConfigState] = useState<TiendanubePollConfig>(() => getPollConfig());
 
   const selectedCount = selectedChanges.length;
-  const selectedDataCount = useMemo(() => preview?.cambios.filter((cambio) => selectedChanges.includes(cambio.id) && cambio.type === "DATOS").length ?? 0, [preview, selectedChanges]);
+  const selectedLocalCount = useMemo(() => preview?.cambios.filter((cambio) => selectedChanges.includes(cambio.id) && canPushLocalChange(cambio)).length ?? 0, [preview, selectedChanges]);
   const hasCredentials = Boolean(creds);
 
   const groupedCounts = useMemo(() => {
@@ -221,16 +226,22 @@ export function Tiendanube() {
     }
   }
 
-  async function handleApplySelected() {
+  function removeResolvedChanges(ids: string[]) {
+    const resolved = new Set(ids);
+    setPreview((current) => current ? { ...current, cambios: current.cambios.filter((cambio) => !resolved.has(cambio.id)) } : current);
+    setSelectedChanges((current) => current.filter((id) => !resolved.has(id)));
+  }
+
+  async function handleApplySelected(ids = selectedChanges) {
     if (!preview) return;
+    if (ids.length === 0) return;
     setIsApplying(true);
-    setSyncLogs((prev) => [...prev, nowLog(`Tomando ${selectedChanges.length} cambio/s seleccionado/s desde Tiendanube...`)]);
+    setSyncLogs((prev) => [...prev, nowLog(`Tomando ${ids.length} cambio/s desde Tiendanube...`)]);
     try {
-      await aplicarCambiosSeleccionadosTiendanube(preview, selectedChanges, (msg) => setSyncLogs((prev) => [...prev, nowLog(msg)]));
+      await aplicarCambiosSeleccionadosTiendanube(preview, ids, (msg) => setSyncLogs((prev) => [...prev, nowLog(msg)]));
       await acknowledgeTiendanubeWebhookEvents(preview.webhookEventKeys);
       window.dispatchEvent(new CustomEvent(SYNCED_EVENT));
-      setPreview(null);
-      setSelectedChanges([]);
+      removeResolvedChanges(ids);
       void loadStatus();
     } catch (error) {
       setSyncLogs((prev) => [...prev, nowLog(`ERROR: ${error instanceof Error ? error.message : String(error)}`)]);
@@ -239,16 +250,37 @@ export function Tiendanube() {
     }
   }
 
-  async function handlePushLocalDataSelected() {
+  async function handlePushLocalDataSelected(ids = selectedChanges) {
     if (!preview) return;
+    const localIds = ids.filter((id) => {
+      const cambio = preview.cambios.find((item) => item.id === id);
+      return cambio ? canPushLocalChange(cambio) : false;
+    });
+    if (localIds.length === 0) return;
     setIsApplying(true);
-    setSyncLogs((prev) => [...prev, nowLog(`Enviando ${selectedDataCount} producto/s con datos locales hacia Tiendanube...`)]);
+    setSyncLogs((prev) => [...prev, nowLog(`Enviando ${localIds.length} cambio/s con valores locales hacia Tiendanube...`)]);
     try {
-      await enviarDatosLocalesSeleccionadosATiendanube(preview, selectedChanges, (msg) => setSyncLogs((prev) => [...prev, nowLog(msg)]));
+      await enviarDatosLocalesSeleccionadosATiendanube(preview, localIds, (msg) => setSyncLogs((prev) => [...prev, nowLog(msg)]));
       await acknowledgeTiendanubeWebhookEvents(preview.webhookEventKeys);
       window.dispatchEvent(new CustomEvent(SYNCED_EVENT));
-      setPreview(null);
-      setSelectedChanges([]);
+      removeResolvedChanges(localIds);
+      void loadStatus();
+    } catch (error) {
+      setSyncLogs((prev) => [...prev, nowLog(`ERROR: ${error instanceof Error ? error.message : String(error)}`)]);
+    } finally {
+      setIsApplying(false);
+    }
+  }
+
+  async function handleDiscardSelected(ids = selectedChanges) {
+    if (!preview) return;
+    if (ids.length === 0) return;
+    setIsApplying(true);
+    setSyncLogs((prev) => [...prev, nowLog(`Descartando ${ids.length} cambio/s pendiente/s...`)]);
+    try {
+      await descartarCambiosSeleccionadosTiendanube(preview, ids, (msg) => setSyncLogs((prev) => [...prev, nowLog(msg)]));
+      await acknowledgeTiendanubeWebhookEvents(preview.webhookEventKeys);
+      removeResolvedChanges(ids);
       void loadStatus();
     } catch (error) {
       setSyncLogs((prev) => [...prev, nowLog(`ERROR: ${error instanceof Error ? error.message : String(error)}`)]);
@@ -397,7 +429,7 @@ export function Tiendanube() {
                       <div className="flex items-center justify-between gap-4 flex-wrap border-b bg-muted/30 p-4">
                         <div>
                           <p className="text-sm font-black uppercase tracking-widest">Cambios encontrados</p>
-                          <p className="text-xs text-muted-foreground">Para Datos puedes elegir si manda el programa a Tiendanube o si tomas Tiendanube hacia el programa.</p>
+                          <p className="text-xs text-muted-foreground">Puedes resolver cada fila tomando Tiendanube, usando el programa como valor correcto o descartando el aviso.</p>
                         </div>
                         <div className="flex flex-wrap items-center gap-2">
                           <Badge variant="outline">Productos {groupedCounts.PRODUCTO_NUEVO}</Badge>
@@ -418,16 +450,19 @@ export function Tiendanube() {
                             <div className="flex flex-wrap gap-2">
                               <Button type="button" variant="outline" size="sm" onClick={() => setSelectedChanges(preview.cambios.map((cambio) => cambio.id))}>Marcar todos</Button>
                               <Button type="button" variant="outline" size="sm" onClick={() => setSelectedChanges([])}>Limpiar</Button>
-                              <Button type="button" variant="outline" size="sm" onClick={handlePushLocalDataSelected} disabled={isApplying || selectedDataCount === 0} className="gap-2">
-                                {isApplying ? <Loader2 className="size-4 animate-spin" /> : <CloudSync className="size-4" />} Enviar datos locales a Tiendanube
+                              <Button type="button" variant="outline" size="sm" onClick={() => void handlePushLocalDataSelected()} disabled={isApplying || selectedLocalCount === 0} className="gap-2">
+                                {isApplying ? <Loader2 className="size-4 animate-spin" /> : <CloudSync className="size-4" />} Usar valores del programa
                               </Button>
-                              <Button type="button" size="sm" onClick={handleApplySelected} disabled={isApplying || selectedCount === 0} className="gap-2">
+                              <Button type="button" size="sm" onClick={() => void handleApplySelected()} disabled={isApplying || selectedCount === 0} className="gap-2">
                                 {isApplying ? <Loader2 className="size-4 animate-spin" /> : <DownloadCloud className="size-4" />} Tomar desde Tiendanube
+                              </Button>
+                              <Button type="button" variant="outline" size="sm" onClick={() => void handleDiscardSelected()} disabled={isApplying || selectedCount === 0} className="gap-2 text-rose-600">
+                                Descartar
                               </Button>
                             </div>
                           </div>
                           <div className="liquid-table-container overflow-x-auto">
-                            <table className="operational-table w-full min-w-[900px] text-sm">
+                            <table className="operational-table w-full min-w-[1080px] text-sm">
                               <thead className="border-b bg-muted/40 text-left text-xs uppercase text-muted-foreground">
                                 <tr>
                                   <th className="w-12 px-4 py-3">Sel.</th>
@@ -437,6 +472,7 @@ export function Tiendanube() {
                                   <th className="px-3 py-3">Tiendanube</th>
                                   <th className="px-3 py-3">Detalle</th>
                                   <th className="px-3 py-3">Acción</th>
+                                  <th className="px-3 py-3 text-right">Resolver</th>
                                 </tr>
                               </thead>
                               <tbody className="divide-y">
@@ -449,6 +485,19 @@ export function Tiendanube() {
                                     <td className="px-3 py-4 text-xs"><p>Stock: {formatStock(cambio.remoteStock)}</p><p>Precio: {formatMoney(cambio.remotePrice)}</p></td>
                                     <td className="px-3 py-4 max-w-[260px] whitespace-normal text-xs text-muted-foreground">{cambio.detalle}</td>
                                     <td className="px-3 py-4 max-w-[190px] whitespace-normal text-xs font-semibold">{cambio.accion}</td>
+                                    <td className="px-3 py-4">
+                                      <div className="flex justify-end gap-2">
+                                        <Button type="button" size="xs" onClick={() => void handleApplySelected([cambio.id])} disabled={isApplying} className="h-8 gap-1.5">
+                                          <DownloadCloud className="size-3.5" /> Tomar
+                                        </Button>
+                                        <Button type="button" variant="outline" size="xs" onClick={() => void handlePushLocalDataSelected([cambio.id])} disabled={isApplying || !canPushLocalChange(cambio)} className="h-8 gap-1.5">
+                                          <CloudSync className="size-3.5" /> Programa
+                                        </Button>
+                                        <Button type="button" variant="ghost" size="xs" onClick={() => void handleDiscardSelected([cambio.id])} disabled={isApplying} className="h-8 text-rose-600 hover:text-rose-700">
+                                          Descartar
+                                        </Button>
+                                      </div>
+                                    </td>
                                   </tr>
                                 ))}
                               </tbody>

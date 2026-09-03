@@ -207,20 +207,24 @@ export async function acknowledgeTiendanubeWebhookEvents(eventKeys: string[]): P
     body: JSON.stringify({ store_id: creds.userId, bridge_token: creds.bridgeToken, event_keys: keys }),
   }).catch((error) => console.warn("No se pudieron confirmar eventos del bridge", error));
 }
-async function updateVariantById(creds: TiendanubeCredentials, tnProductId: number, tnVariantId: number, stock: number, nombre: string) {
+async function updateVariantPayloadById(creds: TiendanubeCredentials, tnProductId: number, tnVariantId: number, payload: Record<string, unknown>, nombre: string) {
   const updateUrl = `https://api.tiendanube.com/v1/${creds.userId}/products/${tnProductId}/variants/${tnVariantId}`;
   const updateResponse = await fetch(updateUrl, {
     method: "PUT",
     headers: buildTnHeaders(creds),
-    body: JSON.stringify({ stock: Number(stock) })
+    body: JSON.stringify(payload)
   });
 
   if (!updateResponse.ok) {
-    const detail = await getErrorMessageFromResponse(updateResponse, updateResponse.statusText || "Error actualizando stock");
+    const detail = await getErrorMessageFromResponse(updateResponse, updateResponse.statusText || "Error actualizando variante");
     throw new Error(`Error actualizando "${nombre}": ${detail}`);
   }
 
   return true;
+}
+
+async function updateVariantById(creds: TiendanubeCredentials, tnProductId: number, tnVariantId: number, stock: number, nombre: string) {
+  return updateVariantPayloadById(creds, tnProductId, tnVariantId, { stock: Number(stock) }, nombre);
 }
 
 // Sincronización por IDs internos de Tiendanube (para productos importados)
@@ -578,16 +582,17 @@ function getLeafCategoryName(value: string | null | undefined) {
 }
 
 function sameCategory(local: CatalogoItem, remote: ProductoUpsert) {
+  const localCategory = getLeafCategoryName(local.categoria);
+  const remoteCategory = getLeafCategoryName(remote.categoriaNombre);
+  const hasMatchingName = Boolean(normalizeText(localCategory)) && Boolean(normalizeText(remoteCategory)) && normalizeText(localCategory) === normalizeText(remoteCategory);
   const localIds = new Set((local.tnCategoryIds ?? []).filter((id) => typeof id === "number"));
   const remoteIds = new Set((remote.categoriaLocalIds ?? []).filter((id) => typeof id === "number"));
   if (localIds.size > 0 && remoteIds.size > 0) {
-    if (localIds.size !== remoteIds.size) return false;
-    for (const id of localIds) if (!remoteIds.has(id)) return false;
+    if (localIds.size !== remoteIds.size) return hasMatchingName;
+    for (const id of localIds) if (!remoteIds.has(id)) return hasMatchingName;
     return true;
   }
 
-  const localCategory = getLeafCategoryName(local.categoria);
-  const remoteCategory = getLeafCategoryName(remote.categoriaNombre);
   if (!normalizeText(localCategory) || !normalizeText(remoteCategory)) return true;
   return normalizeText(localCategory) === normalizeText(remoteCategory);
 }
@@ -1369,35 +1374,78 @@ export async function enviarDatosLocalesSeleccionadosATiendanube(
   onProgress: (msg: string) => void,
 ): Promise<{ aplicados: number; errores: number }> {
   const selected = new Set(selectedIds);
-  const dataChanges = preview.cambios.filter((cambio) => selected.has(cambio.id) && cambio.type === "DATOS");
-  if (dataChanges.length === 0) throw new Error("Selecciona al menos un cambio de Datos para enviar al programa hacia Tiendanube.");
+  const localChanges = preview.cambios.filter((cambio) => selected.has(cambio.id) && ["DATOS", "STOCK", "PRECIO"].includes(cambio.type));
+  if (localChanges.length === 0) throw new Error("Selecciona al menos un cambio de Datos, Stock o Precio para enviar desde el programa hacia Tiendanube.");
 
+  const creds = getTiendanubeCredentials();
+  if (!creds) throw new Error("No hay credenciales activas.");
   const catalogo = await getCatalogoProductos();
-  const { byProduct } = buildLocalIndexes(catalogo);
-  const productIds = Array.from(new Set(dataChanges.map((cambio) => cambio.tnProductId)));
+  const { byProduct, byVariant } = buildLocalIndexes(catalogo);
 
   let aplicados = 0;
   let errores = 0;
-  for (const tnProductId of productIds) {
-    const localItem = byProduct.get(tnProductId)?.[0];
-    if (!localItem) {
-      errores++;
-      onProgress(`ERROR: no se encontró producto local vinculado a Tiendanube ${tnProductId}.`);
-      continue;
-    }
+  for (const cambio of localChanges) {
     try {
-      onProgress(`Enviando datos locales de "${localItem.nombre}" a Tiendanube...`);
-      await pushProductoMetadataATiendanube(localItem);
+      if (cambio.type === "DATOS") {
+        const localItem = byProduct.get(cambio.tnProductId)?.[0];
+        if (!localItem) throw new Error(`No se encontró producto local vinculado a Tiendanube ${cambio.tnProductId}.`);
+        onProgress(`Enviando datos locales de "${localItem.nombre}" a Tiendanube...`);
+        await pushProductoMetadataATiendanube(localItem);
+      } else {
+        if (!cambio.tnVariantId) throw new Error(`El cambio de "${cambio.producto}" no tiene variante vinculada.`);
+        const localItem = byVariant.get(cambio.tnVariantId);
+        if (!localItem) throw new Error(`No se encontró variante local vinculada a Tiendanube ${cambio.tnVariantId}.`);
+        onProgress(`Enviando stock/precio local de "${localItem.nombre}" (${variantDisplay(localItem.variante)}) a Tiendanube...`);
+        await updateVariantPayloadById(creds, cambio.tnProductId, cambio.tnVariantId, buildTiendanubeVariantPayload(localItem), localItem.nombre);
+      }
+      await markPendingTiendanubeChange(cambio.queueId, "APLICADO");
       aplicados++;
     } catch (error) {
-      console.warn("Error enviando datos locales a Tiendanube", tnProductId, error);
+      console.warn("Error enviando valores locales a Tiendanube", cambio, error);
       errores++;
-      onProgress(`ERROR en "${localItem.nombre}": ${error instanceof Error ? error.message : String(error)}`);
+      onProgress(`ERROR en "${cambio.producto}": ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
-  onProgress(`Datos locales enviados a Tiendanube: ${aplicados} producto/s, ${errores} error/es.`);
+  const finishedAt = new Date().toISOString();
+  localStorage.setItem(SYNC_SINCE_KEY, finishedAt);
+  localStorage.setItem(AUTO_CHECK_SINCE_KEY, finishedAt);
+  localStorage.setItem(SYNC_STATUS_KEY, new Date().toLocaleString());
+  onProgress(`Valores locales enviados a Tiendanube: ${aplicados} cambio/s, ${errores} error/es.`);
   return { aplicados, errores };
+}
+
+export async function descartarCambiosSeleccionadosTiendanube(
+  preview: TiendanubeSyncPreview,
+  selectedIds: string[],
+  onProgress: (msg: string) => void,
+): Promise<{ descartados: number }> {
+  const selected = new Set(selectedIds);
+  const changes = preview.cambios.filter((cambio) => selected.has(cambio.id));
+  if (changes.length === 0) throw new Error("Selecciona al menos un cambio para descartar.");
+
+  let descartados = 0;
+  for (const cambio of changes) {
+    await markPendingTiendanubeChange(cambio.queueId, "IGNORADO");
+    descartados++;
+    onProgress(`Descartado: ${cambio.producto} (${changeTypeLogLabel(cambio.type)}).`);
+  }
+
+  onProgress(`Cambios descartados: ${descartados}.`);
+  return { descartados };
+}
+
+function changeTypeLogLabel(type: TiendanubeSyncChangeType) {
+  const labels: Record<TiendanubeSyncChangeType, string> = {
+    PRODUCTO_NUEVO: "producto nuevo",
+    VARIANTE_NUEVA: "variante nueva",
+    VENTA_TN: "venta Tiendanube",
+    STOCK: "stock",
+    PRECIO: "precio",
+    DATOS: "datos",
+    IMAGEN: "imagen",
+  };
+  return labels[type];
 }
 export async function pushProductoATiendanube(item: CatalogoItem): Promise<{ categoryAssigned: boolean }> {
   const creds = getTiendanubeCredentials();
