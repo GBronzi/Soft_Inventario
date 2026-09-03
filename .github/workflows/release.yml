@@ -36,20 +36,20 @@ jobs:
           releaseName: "Inventario App ${{ github.ref_name }}"
           releaseBody: |
             ## Sincronizacion Tiendanube
-            - La revision de cambios ahora permite resolver cada fila de forma individual.
-            - Se agrega la opcion Programa para enviar a Tiendanube el valor local correcto en cambios de datos, stock o precio.
-            - Se agrega la opcion Descartar para quitar avisos pendientes que no se quieran aplicar, sin tocar el stock local ni Tiendanube.
-            - Se reducen avisos innecesarios de categoria cuando Tiendanube y el programa tienen nombres equivalentes aunque los IDs internos difieran.
+            - Se reorganiza la ventana Sincronizacion para reducir el scroll horizontal.
+            - La tarjeta Sincronizacion y Direcciones separadas quedan en la primera fila.
+            - El Panel de sincronizacion queda en una segunda fila independiente y mas amplia.
 
             ## Control operativo
-            - El boton Usar valores del programa ya no queda limitado solo a datos generales.
-            - Los cambios resueltos se retiran de la lista sin borrar el resto de revisiones pendientes.
-            - Se conserva el flujo de revision antes de tomar cambios desde Tiendanube.
+            - Los botones por fila ahora usan nombres mas claros: Programa y Tienda nube.
+            - Programa toma el cambio desde Tiendanube y lo guarda localmente.
+            - Tienda nube envia el valor correcto del programa hacia Tiendanube.
+            - La tarjeta Direcciones separadas incluye una leyenda para explicar Programa, Tienda nube y Descartar.
 
             ## Importante
             - Esta actualizacion no elimina ni reinicia la base local del cliente.
-            - Usar Programa actualiza Tiendanube con el valor local seleccionado.
-            - Descartar solo limpia el aviso pendiente; no modifica productos ni movimientos.
+            - No cambia la logica de stock ni ventas; es un ajuste visual y de claridad operativa.
+            - Descartar sigue limpiando el aviso pendiente sin modificar productos ni movimientos.
           releaseDraft: false
           prerelease: false
           uploadUpdaterJson: true

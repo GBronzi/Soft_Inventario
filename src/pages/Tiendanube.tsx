@@ -311,9 +311,8 @@ export function Tiendanube() {
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500 max-w-6xl mx-auto">
-      <div className="flex flex-col gap-6 lg:flex-row">
-        <section className="w-full lg:w-[380px] shrink-0 space-y-6">
-          <Card className="border-none shadow-xl bg-card/60 backdrop-blur-md overflow-hidden">
+      <section className="flex flex-col gap-6 lg:flex-row lg:items-stretch lg:max-w-[860px]">
+        <Card className="w-full lg:w-[380px] shrink-0 border-none shadow-xl bg-card/60 backdrop-blur-md overflow-hidden">
             <CardHeader className="bg-[#002D45] text-white pb-8 relative overflow-hidden">
               <div className="absolute -right-4 -bottom-4 opacity-10"><ShoppingBag className="size-32" /></div>
               <div className="relative z-10 space-y-2">
@@ -363,19 +362,24 @@ export function Tiendanube() {
                 </div>
               )}
             </CardContent>
-          </Card>
+        </Card>
 
-          <Card className="border-none shadow-xl bg-card/40 backdrop-blur-sm">
-            <CardContent className="p-6 text-xs text-muted-foreground space-y-2 leading-relaxed">
-              <p className="font-bold text-foreground">Direcciones separadas</p>
-              <p><strong>Tiendanube al programa:</strong> primero muestra cambios y sólo aplica los seleccionados.</p>
-              <p><strong>Programa a Tiendanube:</strong> sube el stock local actual de productos vinculados.</p>
-            </CardContent>
-          </Card>
-        </section>
+        <Card className="w-full lg:w-[420px] border-none shadow-xl bg-card/40 backdrop-blur-sm">
+          <CardContent className="p-6 text-xs text-muted-foreground space-y-3 leading-relaxed">
+            <p className="font-bold text-foreground">Direcciones separadas</p>
+            <p><strong>Tiendanube al programa:</strong> primero muestra cambios y sólo aplica los seleccionados.</p>
+            <p><strong>Programa a Tiendanube:</strong> sube el valor local actual de productos vinculados.</p>
+            <div className="pt-2 space-y-1.5 border-t border-border/40">
+              <p><strong>Botón Programa:</strong> toma el cambio de Tiendanube y lo guarda en el programa.</p>
+              <p><strong>Botón Tienda nube:</strong> envía el valor del programa hacia Tiendanube.</p>
+              <p><strong>Botón Descartar:</strong> limpia el aviso sin modificar stock ni productos.</p>
+            </div>
+          </CardContent>
+        </Card>
+      </section>
 
-        <section className="flex-1 space-y-6">
-          <Card className={`border-none shadow-xl transition-all ${status.connected ? "bg-card/60" : "bg-muted/10 opacity-75"} backdrop-blur-md overflow-hidden`}>
+      <section className="space-y-6">
+        <Card className={`border-none shadow-xl transition-all ${status.connected ? "bg-card/60" : "bg-muted/10 opacity-75"} backdrop-blur-md overflow-hidden`}>
             <CardHeader className="pb-6">
               <div className="flex items-center justify-between gap-4 flex-wrap">
                 <div className="flex items-center gap-3">
@@ -451,10 +455,10 @@ export function Tiendanube() {
                               <Button type="button" variant="outline" size="sm" onClick={() => setSelectedChanges(preview.cambios.map((cambio) => cambio.id))}>Marcar todos</Button>
                               <Button type="button" variant="outline" size="sm" onClick={() => setSelectedChanges([])}>Limpiar</Button>
                               <Button type="button" variant="outline" size="sm" onClick={() => void handlePushLocalDataSelected()} disabled={isApplying || selectedLocalCount === 0} className="gap-2">
-                                {isApplying ? <Loader2 className="size-4 animate-spin" /> : <CloudSync className="size-4" />} Usar valores del programa
+                                {isApplying ? <Loader2 className="size-4 animate-spin" /> : <CloudSync className="size-4" />} Tienda nube
                               </Button>
                               <Button type="button" size="sm" onClick={() => void handleApplySelected()} disabled={isApplying || selectedCount === 0} className="gap-2">
-                                {isApplying ? <Loader2 className="size-4 animate-spin" /> : <DownloadCloud className="size-4" />} Tomar desde Tiendanube
+                                {isApplying ? <Loader2 className="size-4 animate-spin" /> : <DownloadCloud className="size-4" />} Programa
                               </Button>
                               <Button type="button" variant="outline" size="sm" onClick={() => void handleDiscardSelected()} disabled={isApplying || selectedCount === 0} className="gap-2 text-rose-600">
                                 Descartar
@@ -462,17 +466,17 @@ export function Tiendanube() {
                             </div>
                           </div>
                           <div className="liquid-table-container overflow-x-auto">
-                            <table className="operational-table w-full min-w-[1080px] text-sm">
+                            <table className="operational-table w-full table-fixed text-sm">
                               <thead className="border-b bg-muted/40 text-left text-xs uppercase text-muted-foreground">
                                 <tr>
                                   <th className="w-12 px-4 py-3">Sel.</th>
-                                  <th className="px-3 py-3">Tipo</th>
-                                  <th className="px-3 py-3">Producto / Variante</th>
-                                  <th className="px-3 py-3">Local</th>
-                                  <th className="px-3 py-3">Tiendanube</th>
+                                  <th className="w-[110px] px-3 py-3">Tipo</th>
+                                  <th className="w-[22%] px-3 py-3">Producto / Variante</th>
+                                  <th className="w-[105px] px-3 py-3">Local</th>
+                                  <th className="w-[115px] px-3 py-3">Tiendanube</th>
                                   <th className="px-3 py-3">Detalle</th>
-                                  <th className="px-3 py-3">Acción</th>
-                                  <th className="px-3 py-3 text-right">Resolver</th>
+                                  <th className="w-[16%] px-3 py-3">Acción</th>
+                                  <th className="w-[170px] px-3 py-3 text-right">Resolver</th>
                                 </tr>
                               </thead>
                               <tbody className="divide-y">
@@ -483,15 +487,15 @@ export function Tiendanube() {
                                     <td className="px-3 py-4"><p className="font-bold">{cambio.producto}</p><p className="text-xs text-muted-foreground">{cambio.variante || "Producto completo"}</p></td>
                                     <td className="px-3 py-4 text-xs"><p>Stock: {formatStock(cambio.localStock)}</p><p>Precio: {formatMoney(cambio.localPrice)}</p></td>
                                     <td className="px-3 py-4 text-xs"><p>Stock: {formatStock(cambio.remoteStock)}</p><p>Precio: {formatMoney(cambio.remotePrice)}</p></td>
-                                    <td className="px-3 py-4 max-w-[260px] whitespace-normal text-xs text-muted-foreground">{cambio.detalle}</td>
-                                    <td className="px-3 py-4 max-w-[190px] whitespace-normal text-xs font-semibold">{cambio.accion}</td>
+                                    <td className="px-3 py-4 whitespace-normal break-words text-xs text-muted-foreground">{cambio.detalle}</td>
+                                    <td className="px-3 py-4 whitespace-normal break-words text-xs font-semibold">{cambio.accion}</td>
                                     <td className="px-3 py-4">
-                                      <div className="flex justify-end gap-2">
+                                      <div className="flex flex-wrap justify-end gap-2">
                                         <Button type="button" size="xs" onClick={() => void handleApplySelected([cambio.id])} disabled={isApplying} className="h-8 gap-1.5">
-                                          <DownloadCloud className="size-3.5" /> Tomar
+                                          <DownloadCloud className="size-3.5" /> Programa
                                         </Button>
                                         <Button type="button" variant="outline" size="xs" onClick={() => void handlePushLocalDataSelected([cambio.id])} disabled={isApplying || !canPushLocalChange(cambio)} className="h-8 gap-1.5">
-                                          <CloudSync className="size-3.5" /> Programa
+                                          <CloudSync className="size-3.5" /> Tienda nube
                                         </Button>
                                         <Button type="button" variant="ghost" size="xs" onClick={() => void handleDiscardSelected([cambio.id])} disabled={isApplying} className="h-8 text-rose-600 hover:text-rose-700">
                                           Descartar
@@ -531,8 +535,7 @@ export function Tiendanube() {
               )}
             </CardContent>
           </Card>
-        </section>
-      </div>
+      </section>
     </div>
   );
 }
