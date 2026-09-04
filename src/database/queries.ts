@@ -62,6 +62,22 @@ export function notifyMonthlySalesUpdate() {
   }
 }
 
+export function sqliteLocalDateTimeExpression(column: string) {
+  return `CASE
+    WHEN ${column} GLOB '*[+-][0-9][0-9][0-9][0-9]'
+    THEN substr(${column}, 1, length(${column}) - 2) || ':' || substr(${column}, length(${column}) - 1, 2)
+    ELSE ${column}
+  END`;
+}
+
+export function sqliteLocalDateExpression(column: string) {
+  return `DATE(${sqliteLocalDateTimeExpression(column)}, 'localtime')`;
+}
+
+export function sqliteLocalMonthExpression(column: string) {
+  return `strftime('%Y-%m', ${sqliteLocalDateTimeExpression(column)}, 'localtime')`;
+}
+
 interface InventarioDeleteCheckRow {
   inventarioId: number;
   productoId: number;
@@ -91,7 +107,7 @@ export async function getDashboardOverview(): Promise<DashboardStats> {
         "SELECT COUNT(*) AS total FROM inventario WHERE stock_actual <= stock_minimo",
       ),
       getCount(
-        "SELECT COUNT(*) AS total FROM movimientos_stock WHERE DATE(fecha_movimiento) = DATE('now', 'localtime')",
+        `SELECT COUNT(*) AS total FROM movimientos_stock WHERE ${sqliteLocalDateExpression("fecha_movimiento")} = DATE('now', 'localtime')`,
       ),
       getCount(
         "SELECT COALESCE(SUM(stock_actual * precio_compra), 0) AS total FROM inventario",
@@ -381,12 +397,12 @@ export async function getMovimientos(filters: MovimientosFilters = {}): Promise<
 
   if (filters.fechaDesde?.trim()) {
     bindValues.push(filters.fechaDesde.trim());
-    whereClauses.push(`DATE(m.fecha_movimiento) >= DATE($${bindValues.length})`);
+    whereClauses.push(`${sqliteLocalDateExpression("m.fecha_movimiento")} >= DATE($${bindValues.length})`);
   }
 
   if (filters.fechaHasta?.trim()) {
     bindValues.push(filters.fechaHasta.trim());
-    whereClauses.push(`DATE(m.fecha_movimiento) <= DATE($${bindValues.length})`);
+    whereClauses.push(`${sqliteLocalDateExpression("m.fecha_movimiento")} <= DATE($${bindValues.length})`);
   }
 
   const whereSql = whereClauses.length > 0 ? `WHERE ${whereClauses.join(" AND ")}` : "";
@@ -638,7 +654,7 @@ export async function getResumenMensualMovimientos(mes: string): Promise<Resumen
       COALESCE(SUM(CASE WHEN concepto IN ('CORRECCION_STOCK', 'SINCRONIZACION_TN') AND cantidad > 0 THEN cantidad ELSE 0 END), 0) AS ajustesPositivos,
       COALESCE(SUM(CASE WHEN concepto IN ('CORRECCION_STOCK', 'SINCRONIZACION_TN') AND cantidad < 0 THEN ABS(cantidad) ELSE 0 END), 0) AS ajustesNegativos
      FROM movimientos_stock
-     WHERE strftime('%Y-%m', fecha_movimiento, 'localtime') = $1`,
+     WHERE ${sqliteLocalMonthExpression("fecha_movimiento")} = $1`,
     [mes],
   );
   const row = rows[0];

@@ -370,8 +370,8 @@ export function Tiendanube() {
             <p><strong>Tiendanube al programa:</strong> primero muestra cambios y sólo aplica los seleccionados.</p>
             <p><strong>Programa a Tiendanube:</strong> sube el valor local actual de productos vinculados.</p>
             <div className="pt-2 space-y-1.5 border-t border-border/40">
-              <p><strong>Botón Programa:</strong> toma el cambio de Tiendanube y lo guarda en el programa.</p>
-              <p><strong>Botón Tienda nube:</strong> envía el valor del programa hacia Tiendanube.</p>
+              <p><strong>Botón Enviar a programa:</strong> toma el cambio de Tiendanube y lo guarda en el programa.</p>
+              <p><strong>Botón Enviar a Tiendanube:</strong> envía el valor del programa hacia Tiendanube.</p>
               <p><strong>Botón Descartar:</strong> limpia el aviso sin modificar stock ni productos.</p>
             </div>
           </CardContent>
@@ -455,10 +455,10 @@ export function Tiendanube() {
                               <Button type="button" variant="outline" size="sm" onClick={() => setSelectedChanges(preview.cambios.map((cambio) => cambio.id))}>Marcar todos</Button>
                               <Button type="button" variant="outline" size="sm" onClick={() => setSelectedChanges([])}>Limpiar</Button>
                               <Button type="button" variant="outline" size="sm" onClick={() => void handlePushLocalDataSelected()} disabled={isApplying || selectedLocalCount === 0} className="gap-2">
-                                {isApplying ? <Loader2 className="size-4 animate-spin" /> : <CloudSync className="size-4" />} Tienda nube
+                                {isApplying ? <Loader2 className="size-4 animate-spin" /> : <CloudSync className="size-4" />} Enviar a Tiendanube
                               </Button>
                               <Button type="button" size="sm" onClick={() => void handleApplySelected()} disabled={isApplying || selectedCount === 0} className="gap-2">
-                                {isApplying ? <Loader2 className="size-4 animate-spin" /> : <DownloadCloud className="size-4" />} Programa
+                                {isApplying ? <Loader2 className="size-4 animate-spin" /> : <DownloadCloud className="size-4" />} Enviar a programa
                               </Button>
                               <Button type="button" variant="outline" size="sm" onClick={() => void handleDiscardSelected()} disabled={isApplying || selectedCount === 0} className="gap-2 text-rose-600">
                                 Descartar
@@ -475,8 +475,8 @@ export function Tiendanube() {
                                   <th className="w-[105px] px-3 py-3">Local</th>
                                   <th className="w-[115px] px-3 py-3">Tiendanube</th>
                                   <th className="px-3 py-3">Detalle</th>
-                                  <th className="w-[15%] px-3 py-3">Acción</th>
-                                  <th className="w-[128px] px-3 py-3 text-right">Resolver</th>
+                                  <th className="w-[13%] px-3 py-3">Acción</th>
+                                  <th className="w-[178px] px-3 py-3 text-right">Resolver</th>
                                 </tr>
                               </thead>
                               <tbody className="divide-y">
@@ -491,11 +491,11 @@ export function Tiendanube() {
                                     <td className="px-3 py-4 whitespace-normal break-words text-xs font-semibold">{cambio.accion}</td>
                                     <td className="px-3 py-4">
                                       <div className="flex flex-col items-stretch gap-1.5">
-                                        <Button type="button" size="xs" onClick={() => void handleApplySelected([cambio.id])} disabled={isApplying} className="h-7 justify-center gap-1 px-2 text-[10px] leading-none">
-                                          <DownloadCloud className="size-3" /> Programa
+                                        <Button type="button" size="xs" onClick={() => void handleApplySelected([cambio.id])} disabled={isApplying} className="h-7 justify-center gap-1.5 px-2 text-[10px] leading-none whitespace-nowrap">
+                                          <DownloadCloud className="size-3" /> Enviar a programa
                                         </Button>
-                                        <Button type="button" variant="outline" size="xs" onClick={() => void handlePushLocalDataSelected([cambio.id])} disabled={isApplying || !canPushLocalChange(cambio)} className="h-7 justify-center gap-1 px-2 text-[10px] leading-none">
-                                          <CloudSync className="size-3" /> Tienda nube
+                                        <Button type="button" variant="outline" size="xs" onClick={() => void handlePushLocalDataSelected([cambio.id])} disabled={isApplying || !canPushLocalChange(cambio)} className="h-7 justify-center gap-1.5 px-2 text-[10px] leading-none whitespace-nowrap">
+                                          <CloudSync className="size-3" /> Enviar a Tiendanube
                                         </Button>
                                         <Button type="button" variant="ghost" size="xs" onClick={() => void handleDiscardSelected([cambio.id])} disabled={isApplying} className="h-7 justify-center px-2 text-[10px] leading-none text-rose-600 hover:text-rose-700">
                                           Descartar

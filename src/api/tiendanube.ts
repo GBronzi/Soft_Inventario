@@ -1162,6 +1162,7 @@ export async function aplicarCambiosSeleccionadosTiendanube(
         if (isTiendanubeSale && saleUnits > 0 && cambio.localStock != null) {
           const stockBeforeSale = Number(cambio.remoteStock) + saleUnits;
           if (stockBeforeSale !== Number(cambio.localStock)) {
+            const firstSaleDate = sortOrderMatchesByDate(cambio.orderMatches ?? [])[0]?.createdAt;
             await aplicarStockDesdeTiendanube({
               inventarioId: cambio.inventarioId,
               tnProductId: cambio.tnProductId,
@@ -1169,6 +1170,7 @@ export async function aplicarCambiosSeleccionadosTiendanube(
               stock: stockBeforeSale,
               motivo: `Ajuste previo de Tiendanube antes de venta pagada (${cambio.localStock} -> ${stockBeforeSale}).`,
               referencia: `TN-P${cambio.tnProductId}-V${cambio.tnVariantId}-PREVENTA`,
+              fechaMovimiento: firstSaleDate ?? undefined,
             });
           }
         }

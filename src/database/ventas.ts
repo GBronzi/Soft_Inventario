@@ -1,5 +1,5 @@
 import { getDatabase } from "@/database/db";
-import { notifyMonthlySalesUpdate } from "@/database/queries";
+import { notifyMonthlySalesUpdate, sqliteLocalDateExpression, sqliteLocalMonthExpression } from "@/database/queries";
 import { localDateKey, localMonthKey } from "@/lib/datetime";
 import type { RegistroVentasMensual, ResumenVentasDia, VentaAnulableItem, VentaAnuladaResultado, VentaDraft, VentaRegistroItem, VentaRegistrada } from "@/types";
 
@@ -138,7 +138,7 @@ export async function getResumenVentasDia(fecha?: string): Promise<ResumenVentas
       WHERE m.tipo_movimiento = 'SALIDA'
         AND m.concepto = 'VENTA'
         AND m.anulado_en IS NULL
-        AND DATE(m.fecha_movimiento, 'localtime') = DATE($1)
+        AND ${sqliteLocalDateExpression("m.fecha_movimiento")} = DATE($1)
         AND NOT EXISTS (
           SELECT 1 FROM ventas v2
           WHERE v2.numero = m.operacion_id AND v2.estado = 'CONFIRMADA'
@@ -239,7 +239,7 @@ export async function getRegistroVentasMensual(mes: string): Promise<RegistroVen
         ELSE 'MOVIMIENTO:' || m.id
       END
       WHERE m.tipo_movimiento = 'SALIDA'
-        AND strftime('%Y-%m', m.fecha_movimiento, 'localtime') = $1
+        AND ${sqliteLocalMonthExpression("m.fecha_movimiento")} = $1
         AND m.concepto = 'VENTA'
         AND m.anulado_en IS NULL
         AND NOT EXISTS (
@@ -371,7 +371,7 @@ export async function getVentasAnulablesMensual(mes: string): Promise<VentaAnula
         ELSE 'MOVIMIENTO:' || m.id
       END
       WHERE m.tipo_movimiento = 'SALIDA'
-        AND strftime('%Y-%m', m.fecha_movimiento, 'localtime') = $1
+        AND ${sqliteLocalMonthExpression("m.fecha_movimiento")} = $1
         AND m.concepto = 'VENTA'
         AND m.anulado_en IS NULL
         AND NOT EXISTS (

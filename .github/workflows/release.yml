@@ -35,20 +35,23 @@ jobs:
           tagName: ${{ github.ref_name }}
           releaseName: "Inventario App ${{ github.ref_name }}"
           releaseBody: |
-            ## Sincronizacion Tiendanube
-            - Las ventas de Tiendanube ya aplicadas se filtran por numero de orden individual antes de mostrarse como pendientes.
-            - Una venta antigua devuelta por Tiendanube por updated_at ya no se mezcla con una venta nueva si ya estaba registrada.
-            - Se reconocen tambien referencias antiguas combinadas, por ejemplo Tiendanube #180, #160, para evitar duplicados.
+            ## Correccion de fechas Tiendanube
+            - El historial operativo, ventas del dia, registro mensual, anulaciones y resumen mensual ahora reconocen correctamente fechas Tiendanube con zona horaria tipo +0000.
+            - Las ventas #181/#182 y casos similares quedan ubicados por su fecha local real y ya no se ocultan por el filtro de fecha.
+            - El ajuste previo antes de una venta pagada de Tiendanube toma la fecha de la venta asociada para no aparecer separado en el dia de aplicacion.
 
-            ## Control operativo
-            - Al aplicar ventas de Tiendanube, cada orden se registra por separado con su referencia propia.
-            - Si una venta vieja no existia localmente, se registra con la fecha real del pedido Tiendanube, no con la fecha de sincronizacion.
-            - Se mantiene la proteccion para no descontar stock dos veces por la misma orden.
+            ## Sincronizacion
+            - Los botones de resolucion ahora muestran textos mas claros: Enviar a programa y Enviar a Tiendanube.
+            - La columna Resolver fue ampliada para evitar textos pisados en el panel de sincronizacion.
+
+            ## Variantes de producto
+            - La ficha del producto incorpora accion para eliminar variantes.
+            - Si la variante tiene historial, se marca como DISCONTINUADO para conservar ventas y kardex.
+            - Se alinearon titulos y columnas de la tabla Variantes del producto.
 
             ## Importante
             - Esta actualizacion no elimina ni reinicia la base local del cliente.
-            - No corrige automaticamente movimientos historicos ya grabados con fecha incorrecta; evita que el problema se repita en nuevas sincronizaciones.
-            - Si una venta vieja ya quedo registrada mal en la base del cliente, debe corregirse con un ajuste puntual de base.
+            - Las ventas de Tiendanube que ya existian pero no se veian por formato de fecha pasan a aparecer con los filtros corregidos.
           releaseDraft: false
           prerelease: false
           uploadUpdaterJson: true

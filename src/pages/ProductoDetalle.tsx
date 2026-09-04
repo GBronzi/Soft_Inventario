@@ -21,7 +21,8 @@ import {
   Eye,
   EyeOff,
   Globe,
-  ShoppingBag
+  ShoppingBag,
+  Trash2
 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
@@ -35,7 +36,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { getMovimientosByInventarioId, getProductoByInventarioId, getProductoCategorias, getVariantesByProductoId } from "@/database/queries";
+import { deleteInventarioSeguro, getMovimientosByInventarioId, getProductoByInventarioId, getProductoCategorias, getVariantesByProductoId, updateEstadoInventario } from "@/database/queries";
 import { formatDatabaseDate, formatDatabaseTime } from "@/lib/datetime";
 import { buildMovimientosRoute, buildRepeatMovimientoRoute, buildVentaRapidaRoute, formatMovimientoQuantity, getMovimientoQuantityTone } from "@/lib/movimientos";
 import type { CategoriaRef, MovimientoListado, ProductoDetalle as ProductoDetalleType, ProductoVarianteResumen } from "@/types";
@@ -101,6 +102,7 @@ export function ProductoDetalle() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [loading, setLoading] = useState(true);
   const [status, setStatus] = useState<string | null>(null);
+  const [deletingVariantId, setDeletingVariantId] = useState<number | null>(null);
   const inventarioId = Number(params.inventarioId);
 
   const currencyFormatter = new Intl.NumberFormat("es-AR", {
@@ -155,6 +157,52 @@ export function ProductoDetalle() {
     }
   };
 
+  const handleDeleteVariant = async (variante: ProductoVarianteResumen) => {
+    if (!detalle || deletingVariantId) return;
+    const label = getVariantLabel(variante);
+    const isLastVariant = variantes.length <= 1;
+    const message = isLastVariant
+      ? `Esta es la última variante de "${detalle.nombre}". Si no tiene movimientos, se eliminará el producto completo. Si tiene historial, se marcará como discontinuado para conservar los registros. ¿Deseas continuar?`
+      : `¿Deseas eliminar la variante "${label}"? Si tiene historial de movimientos, no se borrará físicamente: se marcará como discontinuada para conservar el kardex.`;
+
+    if (!window.confirm(message)) return;
+
+    setDeletingVariantId(variante.inventarioId);
+    setStatus(null);
+
+    try {
+      const result = await deleteInventarioSeguro(variante.inventarioId);
+      if (result.productoEliminado) {
+        navigate("/catalogo");
+        return;
+      }
+
+      const nextVariants = await getVariantesByProductoId(detalle.productoId);
+      setVariantes(nextVariants);
+      setStatus(`Variante "${label}" eliminada.`);
+
+      if (variante.inventarioId === detalle.inventarioId) {
+        const nextSelected = nextVariants.find((item) => item.inventarioId !== variante.inventarioId) ?? nextVariants[0];
+        if (nextSelected) navigate(`/producto/${nextSelected.inventarioId}`);
+      }
+    } catch (error) {
+      const messageText = error instanceof Error ? error.message : String(error);
+      if (messageText.toLowerCase().includes("historial")) {
+        await updateEstadoInventario(variante.inventarioId, "DISCONTINUADO");
+        const nextVariants = await getVariantesByProductoId(detalle.productoId);
+        setVariantes(nextVariants);
+        if (variante.inventarioId === detalle.inventarioId) {
+          setDetalle((current) => current ? { ...current, estado: "DISCONTINUADO" } : current);
+        }
+        setStatus(`La variante "${label}" tiene historial; quedó marcada como DISCONTINUADO.`);
+      } else {
+        setStatus(messageText || "No se pudo eliminar la variante.");
+      }
+    } finally {
+      setDeletingVariantId(null);
+    }
+  };
+
   if (loading) return <div className="p-20 text-center animate-pulse text-muted-foreground uppercase tracking-widest font-black">Cargando Ficha Técnica...</div>;
 
   if (!detalle) {
@@ -174,6 +222,7 @@ export function ProductoDetalle() {
           <ArrowLeft className="size-4" /> Volver al catálogo
         </Button>
         <div className="flex gap-2">
+          {status && <span className="self-center rounded-full border border-border/50 bg-card/70 px-3 py-1 text-xs font-semibold text-muted-foreground">{status}</span>}
            <Button variant="outline" size="sm" className="rounded-xl gap-2" onClick={() => navigate(`/producto/${detalle.inventarioId}/editar`)}>
             <Edit3 className="size-4" /> Editar Ficha
           </Button>
@@ -259,14 +308,14 @@ export function ProductoDetalle() {
               </div>
             </CardHeader>
             <CardContent className="p-0">
-              <div className="hidden grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_auto_auto_auto] gap-4 border-b border-border/50 bg-muted/20 px-5 py-2 text-[9px] font-bold uppercase text-muted-foreground md:grid">
-                <span>Variante</span><span>SKU / Código</span><span>Precio</span><span>Stock</span><span>Acciones</span>
+              <div className="hidden grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)_112px_86px_112px] gap-4 border-b border-border/50 bg-muted/20 px-5 py-2 text-[9px] font-bold uppercase text-muted-foreground md:grid">
+                <span>Variante</span><span>SKU / Código</span><span className="text-right">Precio</span><span className="text-right">Stock</span><span className="text-right">Acciones</span>
               </div>
               {variantes.map((variante) => {
                 const selected = variante.inventarioId === detalle.inventarioId;
                 const lowStock = variante.stockActual <= variante.stockMinimo;
                 return (
-                  <div key={variante.inventarioId} className={`grid gap-3 border-b border-border/40 px-5 py-4 last:border-b-0 md:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_auto_auto_auto] md:items-center ${selected ? "bg-primary/5 ring-1 ring-inset ring-primary/20" : "hover:bg-muted/20"}`}>
+                  <div key={variante.inventarioId} className={`grid gap-3 border-b border-border/40 px-5 py-4 last:border-b-0 md:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)_112px_86px_112px] md:items-center ${selected ? "bg-primary/5 ring-1 ring-inset ring-primary/20" : "hover:bg-muted/20"}`}>
                     <button type="button" className="min-w-0 text-left" onClick={() => navigate(`/producto/${variante.inventarioId}`)}>
                       <span className="flex items-center gap-2 font-black">
                         {getVariantLabel(variante)}
@@ -278,7 +327,7 @@ export function ProductoDetalle() {
                       <p className="truncate font-semibold">{variante.sku || "Sin SKU"}</p>
                       <p className="truncate text-[10px] text-muted-foreground">{variante.codigoBarras || "Sin código de barras"}</p>
                     </div>
-                    <p className="text-sm font-black tabular-nums">{currencyFormatter.format(variante.precioVenta)}</p>
+                    <p className="text-right text-sm font-black tabular-nums">{currencyFormatter.format(variante.precioVenta)}</p>
                     <div className="text-right md:min-w-16">
                       <p className={`text-sm font-black tabular-nums ${lowStock ? "text-rose-500" : "text-emerald-600"}`}>{variante.stockActual} u.</p>
                       <p className="text-[9px] text-muted-foreground">Mín. {variante.stockMinimo}</p>
@@ -286,6 +335,9 @@ export function ProductoDetalle() {
                     <div className="flex gap-1 md:justify-end">
                       <Button type="button" variant="ghost" size="icon" className="size-8" title="Editar variante" aria-label={`Editar ${getVariantLabel(variante)}`} onClick={() => navigate(`/producto/${variante.inventarioId}/editar`)}><Edit3 className="size-3.5" /></Button>
                       <Button type="button" variant="ghost" size="icon" className="size-8" title="Venta rápida" aria-label={`Vender ${getVariantLabel(variante)}`} onClick={() => navigate(buildVentaRapidaRoute(variante.inventarioId))}><Zap className="size-3.5" /></Button>
+                      <Button type="button" variant="ghost" size="icon" className="size-8 text-rose-500 hover:text-rose-600" title="Eliminar variante" aria-label={`Eliminar ${getVariantLabel(variante)}`} disabled={deletingVariantId === variante.inventarioId} onClick={() => void handleDeleteVariant(variante)}>
+                        {deletingVariantId === variante.inventarioId ? <RefreshCw className="size-3.5 animate-spin" /> : <Trash2 className="size-3.5" />}
+                      </Button>
                     </div>
                   </div>
                 );
