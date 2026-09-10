@@ -1,13 +1,58 @@
-import type { TiendanubeSyncStatus } from "@/types";
-import { getCatalogoProductos } from "@/database/queries";
+import type { CatalogoItem, TiendanubeSyncStatus } from "@/types";
+import {
+  aplicarPrecioDesdeTiendanube,
+  aplicarStockDesdeTiendanube,
+  getCatalogoProductos,
+  getCategoriasArbol,
+  hasActiveMovimientoStockOperacion,
+  setTnUpdatedAt,
+  upsertCategorias,
+  upsertProductoDesdeTiendanube,
+  type CategoriaUpsert,
+  type ProductoUpsert,
+  type VarianteUpsert,
+} from "@/database/queries";
 import { fetch } from "@tauri-apps/plugin-http";
 
 const CREDENTIALS_KEY = "tiendanube_credentials";
 const SYNC_STATUS_KEY = "tiendanube_last_sync";
+const SYNC_SINCE_KEY = "tiendanube_sync_since";
+const AUTO_CHECK_SINCE_KEY = "tiendanube_auto_check_since";
+const POLL_ENABLED_KEY = "tiendanube_poll_enabled";
+const POLL_INTERVAL_KEY = "tiendanube_poll_interval";
+const API_BASE = "https://api.tiendanube.com/v1";
+const BRIDGE_BASE = "https://vercel-bridge-5fpy4bubs-mauricios-projects-45a56444.vercel.app";
+const WEBHOOK_ENDPOINT = `${BRIDGE_BASE}/api/webhooks/tiendanube`;
+const WEBHOOK_EVENTS = ["order/created", "order/paid", "order/updated", "order/cancelled", "product/created", "product/updated"] as const;
+const USER_AGENT = "InventarioOffline (contacto@empresa.com)";
+
+export interface TiendanubePollConfig {
+  enabled: boolean;
+  intervalSec: number;
+}
+
+export function getPollConfig(): TiendanubePollConfig {
+  const enabledRaw = localStorage.getItem(POLL_ENABLED_KEY);
+  const intervalRaw = Number(localStorage.getItem(POLL_INTERVAL_KEY));
+  return {
+    enabled: enabledRaw === null ? true : enabledRaw === "true",
+    intervalSec: Number.isFinite(intervalRaw) && intervalRaw >= 30 ? intervalRaw : 60,
+  };
+}
+
+export function setPollConfig(config: Partial<TiendanubePollConfig>) {
+  if (typeof config.enabled === "boolean") {
+    localStorage.setItem(POLL_ENABLED_KEY, String(config.enabled));
+  }
+  if (typeof config.intervalSec === "number" && config.intervalSec >= 30) {
+    localStorage.setItem(POLL_INTERVAL_KEY, String(config.intervalSec));
+  }
+}
 
 export interface TiendanubeCredentials {
   accessToken: string;
   userId: string;
+  bridgeToken?: string | null;
 }
 
 export function getTiendanubeCredentials(): TiendanubeCredentials | null {
@@ -24,10 +69,50 @@ export function clearTiendanubeCredentials() {
   localStorage.removeItem(SYNC_STATUS_KEY);
 }
 
+export type TiendanubeConnectionIssue = "none" | "auth" | "network" | "api";
+
+export interface TiendanubeConnectionCheck {
+  ok: boolean;
+  message: string;
+  statusCode?: number;
+  issue: TiendanubeConnectionIssue;
+}
+
+export async function validateTiendanubeConnection(): Promise<TiendanubeConnectionCheck> {
+  const creds = getTiendanubeCredentials();
+  if (!creds) {
+    return { ok: false, message: "Faltan credenciales (Token y User ID) para conectar con Tiendanube.", issue: "auth" };
+  }
+
+  try {
+    const params = new URLSearchParams({ page: "1", per_page: "1" });
+    const res = await fetch(`${API_BASE}/${creds.userId}/products?${params.toString()}`, {
+      method: "GET",
+      headers: buildTnHeaders(creds),
+    });
+
+    if (res.ok) {
+      return { ok: true, message: "Conexión verificada con Tiendanube. Token activo y tienda accesible.", statusCode: res.status, issue: "none" };
+    }
+
+    const detail = await getErrorMessageFromResponse(res, res.statusText || "Error validando conexión");
+    const authMessage = res.status === 401 || res.status === 403
+      ? "La autorización de Tiendanube venció o fue rechazada. Desvincula y vuelve a vincular la tienda."
+      : `Tiendanube respondió con error ${res.status}: ${detail}`;
+    return { ok: false, message: authMessage, statusCode: res.status, issue: res.status === 401 || res.status === 403 ? "auth" : "api" };
+  } catch (error) {
+    return {
+      ok: false,
+      message: `No se pudo comprobar la conexión con Tiendanube: ${error instanceof Error ? error.message : String(error)}`,
+      issue: "network",
+    };
+  }
+}
+
 export async function getTiendanubeSyncStatus(): Promise<TiendanubeSyncStatus> {
   const creds = getTiendanubeCredentials();
   const lastSync = localStorage.getItem(SYNC_STATUS_KEY);
-  
+
   if (!creds) {
     return {
       connected: false,
@@ -36,59 +121,113 @@ export async function getTiendanubeSyncStatus(): Promise<TiendanubeSyncStatus> {
     };
   }
 
+  const check = await validateTiendanubeConnection();
   return {
-    connected: true,
+    connected: check.ok,
     lastSync,
-    message: "Conectado y listo para sincronizar stock cruzando SKU o Código de barras.",
+    message: check.message,
   };
 }
 
-// Función auxiliar para buscar y actualizar en la API de Tiendanube
-async function findAndUpdateVariant(creds: TiendanubeCredentials, sku: string, stock: number) {
-  // 1. Buscar variante por SKU
-  const searchUrl = `https://api.tiendanube.com/v1/${creds.userId}/variants?sku=${encodeURIComponent(sku)}`;
-  
-  const searchResponse = await fetch(searchUrl, {
-    method: "GET",
-    headers: {
-      "Authentication": `bearer ${creds.accessToken}`,
-      "User-Agent": "InventarioOffline (contacto@empresa.com)",
-      "Content-Type": "application/json"
-    }
+// Función auxiliar para buscar y actualizar en la API de Tiendanube por ID
+async function postTnJson<T>(creds: TiendanubeCredentials, path: string, body: unknown): Promise<T> {
+  const res = await fetch(`${API_BASE}/${creds.userId}/${path}`, {
+    method: "POST",
+    headers: buildTnHeaders(creds),
+    body: JSON.stringify(body),
   });
+  if (!res.ok) {
+    const detail = await getErrorMessageFromResponse(res, res.statusText || "Error enviando datos a Tiendanube");
+    throw new Error(`Error ${res.status} en ${path}: ${detail}`);
+  }
+  return (await res.json().catch(() => ({}))) as T;
+}
 
-  if (!searchResponse.ok) {
-    throw new Error(`Error buscando SKU ${sku}: ${searchResponse.statusText}`);
+export async function ensureTiendanubeWebhooks(onProgress: (msg: string) => void = () => undefined): Promise<{ existing: number; created: number; errors: number; failedEvents: string[] }> {
+  const creds = getTiendanubeCredentials();
+  if (!creds) throw new Error("No hay credenciales activas.");
+
+  let existing = 0;
+  let created = 0;
+  let errors = 0;
+  const failedEvents: string[] = [];
+
+  for (const event of WEBHOOK_EVENTS) {
+    try {
+      const registered = await tnGetPaginated<{ id: number; event: string; url: string }>(creds, "webhooks", { event, url: WEBHOOK_ENDPOINT });
+      const alreadyExists = registered.some((webhook) => webhook.event === event && webhook.url === WEBHOOK_ENDPOINT);
+      if (alreadyExists) {
+        existing++;
+        continue;
+      }
+
+      await postTnJson(creds, "webhooks", { event, url: WEBHOOK_ENDPOINT });
+      created++;
+      onProgress(`Webhook registrado: ${event}`);
+    } catch (error) {
+      console.warn("No se pudo registrar webhook Tiendanube", event, error);
+      errors++;
+      failedEvents.push(event);
+      onProgress(`Aviso: no se pudo registrar webhook ${event} (${error instanceof Error ? error.message : String(error)}).`);
+    }
   }
 
-  const variants = await searchResponse.json();
-  if (variants.length === 0) {
-    return false; // No se encontró en Tiendanube
+  return { existing, created, errors, failedEvents };
+}
+
+export async function fetchTiendanubeWebhookEvents(onProgress: (msg: string) => void): Promise<{ ok: boolean; events: TiendanubeWebhookBridgeEvent[]; error?: string; enabled: boolean }> {
+  const creds = getTiendanubeCredentials();
+  if (!creds?.bridgeToken) return { ok: false, events: [], enabled: false, error: "La tienda debe volver a vincularse para habilitar el bridge de webhooks." };
+
+  const params = new URLSearchParams({ store_id: creds.userId, bridge_token: creds.bridgeToken });
+  try {
+    const res = await fetch(`${BRIDGE_BASE}/api/webhooks/pending?${params.toString()}`, { method: "GET", headers: { Accept: "application/json" } });
+    const payload = (await res.json().catch(() => null)) as { ok?: boolean; events?: TiendanubeWebhookBridgeEvent[]; error?: string } | null;
+    if (!res.ok || !payload?.ok) {
+      const error = payload?.error ?? `Bridge respondió ${res.status}`;
+      onProgress(`Aviso bridge: ${error}. Se usará revisión directa con Tiendanube.`);
+      return { ok: false, events: [], enabled: true, error };
+    }
+    return { ok: true, events: payload.events ?? [], enabled: true };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    onProgress(`Aviso bridge: no se pudo consultar eventos (${message}). Se usará revisión directa con Tiendanube.`);
+    return { ok: false, events: [], enabled: true, error: message };
   }
+}
 
-  const variant = variants[0];
-  const variantId = variant.id;
-  const productId = variant.product_id;
+export async function acknowledgeTiendanubeWebhookEvents(eventKeys: string[]): Promise<void> {
+  const creds = getTiendanubeCredentials();
+  const keys = Array.from(new Set(eventKeys.filter(Boolean)));
+  if (!creds?.bridgeToken || keys.length === 0) return;
 
-  // 2. Actualizar stock
-  const updateUrl = `https://api.tiendanube.com/v1/${creds.userId}/products/${productId}/variants/${variantId}`;
+  await fetch(`${BRIDGE_BASE}/api/webhooks/pending`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    body: JSON.stringify({ store_id: creds.userId, bridge_token: creds.bridgeToken, event_keys: keys }),
+  }).catch((error) => console.warn("No se pudieron confirmar eventos del bridge", error));
+}
+async function updateVariantPayloadById(creds: TiendanubeCredentials, tnProductId: number, tnVariantId: number, payload: Record<string, unknown>, nombre: string) {
+  const updateUrl = `https://api.tiendanube.com/v1/${creds.userId}/products/${tnProductId}/variants/${tnVariantId}`;
   const updateResponse = await fetch(updateUrl, {
     method: "PUT",
-    headers: {
-      "Authentication": `bearer ${creds.accessToken}`,
-      "User-Agent": "InventarioOffline (contacto@empresa.com)",
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({ stock })
+    headers: buildTnHeaders(creds),
+    body: JSON.stringify(payload)
   });
 
   if (!updateResponse.ok) {
-    throw new Error(`Error actualizando SKU ${sku}: ${updateResponse.statusText}`);
+    const detail = await getErrorMessageFromResponse(updateResponse, updateResponse.statusText || "Error actualizando variante");
+    throw new Error(`Error actualizando "${nombre}": ${detail}`);
   }
 
   return true;
 }
 
+async function updateVariantById(creds: TiendanubeCredentials, tnProductId: number, tnVariantId: number, stock: number, nombre: string) {
+  return updateVariantPayloadById(creds, tnProductId, tnVariantId, { stock: Number(stock) }, nombre);
+}
+
+// Sincronización por IDs internos de Tiendanube (para productos importados)
 export async function syncStockWithTiendanube(onProgress: (msg: string) => void): Promise<void> {
   const creds = getTiendanubeCredentials();
   if (!creds) throw new Error("No hay credenciales activas.");
@@ -96,30 +235,24 @@ export async function syncStockWithTiendanube(onProgress: (msg: string) => void)
   onProgress("Leyendo base de datos local...");
   const catalogo = await getCatalogoProductos();
   
-  // Filtramos los que tienen SKU o código de barras, porque necesitamos un identificador para cruzar
-  const variantesSincronizables = catalogo.filter(c => c.sku || c.codigoBarras);
+  // Filtramos los que tienen tnProductId y tnVariantId (productos importados de Tiendanube)
+  const sincronizables = catalogo.filter(c => c.tnProductId && c.tnVariantId);
   
-  if (variantesSincronizables.length === 0) {
-    throw new Error("No hay productos con SKU o Código de barras para sincronizar.");
+  if (sincronizables.length === 0) {
+    throw new Error("No hay productos vinculados a Tiendanube para sincronizar. Primero importá desde Tiendanube.");
   }
 
   let sincronizados = 0;
   let errores = 0;
 
-  for (const item of variantesSincronizables) {
-    const identificador = item.sku || item.codigoBarras;
-    if (!identificador) continue;
-
+  for (const item of sincronizables) {
     try {
-      onProgress(`Sincronizando SKU ${identificador} (${item.nombre})...`);
-      const success = await findAndUpdateVariant(creds, identificador, item.stockActual);
-      if (success) {
-        sincronizados++;
-      } else {
-        // No se encontró en TN
-      }
+      onProgress(`Sincronizando "${item.nombre}"...`);
+      await updateVariantById(creds, item.tnProductId!, item.tnVariantId!, item.stockActual, item.nombre);
+      await clearPendingLocalEchoChanges(item.tnProductId, item.tnVariantId, ["STOCK"]);
+      sincronizados++;
     } catch (e) {
-      console.warn("Fallo sincronizando", identificador, e);
+      console.warn("Fallo sincronizando", item.nombre, e);
       errores++;
     }
   }
@@ -127,5 +260,1383 @@ export async function syncStockWithTiendanube(onProgress: (msg: string) => void)
   const finishDate = new Date().toLocaleString();
   localStorage.setItem(SYNC_STATUS_KEY, finishDate);
 
-  onProgress(`Completado. ${sincronizados} actualizados, ${errores} errores. Las variantes sin SKU matching en Tiendanube fueron ignoradas.`);
+  onProgress(`Completado. ${sincronizados} actualizado/s, ${errores} error/es.`);
+}
+
+// ===== Importación / sincronización bidireccional (cruce por IDs internos de Tiendanube) =====
+
+type LocalizedField = string | Record<string, string> | null | undefined;
+
+interface TNCategory {
+  id: number;
+  name: LocalizedField;
+  parent?: number | null;
+}
+
+interface TNVariant {
+  id: number;
+  product_id: number;
+  price: string | number | null;
+  stock: number | null;
+  sku: string | null;
+  barcode: string | null;
+  values?: LocalizedField[];
+}
+
+interface TNProduct {
+  id: number;
+  name: LocalizedField;
+  description: LocalizedField;
+  brand?: string | null;
+  tags?: string | null;
+  published?: boolean;
+  seo_title?: LocalizedField;
+  seo_description?: LocalizedField;
+  updated_at?: string | null;
+  categories?: TNCategory[];
+  images?: { src?: string }[];
+  variants?: TNVariant[];
+}
+
+function pickLocale(value: LocalizedField): string | null {
+  if (value == null) return null;
+  if (typeof value === "string") return value.trim() || null;
+  const values = Object.values(value).filter((v) => typeof v === "string" && v.trim());
+  if (values.length === 0) return null;
+  return (value.es?.trim() || values[0]).trim() || null;
+}
+
+export function buildTnHeaders(creds: TiendanubeCredentials) {
+  const token = creds.accessToken.trim();
+  return {
+    Authentication: `Bearer ${token}`,
+    Authorization: `Bearer ${token}`,
+    "User-Agent": USER_AGENT,
+    "Content-Type": "application/json",
+    Accept: "application/json",
+  } as Record<string, string>;
+}
+
+function getErrorMessageFromResponse(response: Response, fallback: string) {
+  return response.text()
+    .then((text) => {
+      if (!text) return fallback;
+      try {
+        const parsed = JSON.parse(text);
+        if (typeof parsed?.message === "string" && parsed.message.trim()) return parsed.message;
+        if (typeof parsed?.error === "string" && parsed.error.trim()) return parsed.error;
+      } catch {
+        // Ignorar y usar texto plano.
+      }
+      return text.trim() || fallback;
+    })
+    .catch(() => fallback);
+}
+
+async function tnGetOne<T>(creds: TiendanubeCredentials, path: string): Promise<T> {
+  const url = `${API_BASE}/${creds.userId}/${path}`;
+  const res = await fetch(url, { method: "GET", headers: buildTnHeaders(creds) });
+  if (!res.ok) {
+    const detail = await getErrorMessageFromResponse(res, res.statusText || "Error consultando Tiendanube");
+    throw new Error(`Error ${res.status} consultando ${path}: ${detail}`);
+  }
+  return (await res.json()) as T;
+}
+
+async function tnGetPaginated<T>(creds: TiendanubeCredentials, path: string, query: Record<string, string> = {}): Promise<T[]> {
+  const all: T[] = [];
+  let page = 1;
+  const perPage = 200;
+  // Recorremos páginas hasta que una venga vacía
+  // (la API responde 404/422 cuando se pasa de la última página en algunos casos)
+  while (true) {
+    const params = new URLSearchParams({ ...query, page: String(page), per_page: String(perPage) });
+    const url = `${API_BASE}/${creds.userId}/${path}?${params.toString()}`;
+    const res = await fetch(url, { method: "GET", headers: buildTnHeaders(creds) });
+    if (res.status === 404 || res.status === 422) break;
+    if (!res.ok) {
+      const detail = await getErrorMessageFromResponse(res, res.statusText || "Error consultando Tiendanube");
+      throw new Error(`Error ${res.status} consultando ${path}: ${detail}`);
+    }
+    const batch = (await res.json()) as T[];
+    if (!Array.isArray(batch) || batch.length === 0) break;
+    all.push(...batch);
+    if (batch.length < perPage) break;
+    page++;
+  }
+  return all;
+}
+
+async function importarCategorias(creds: TiendanubeCredentials): Promise<Map<number, number>> {
+  const cats = await tnGetPaginated<TNCategory>(creds, "categories");
+  const payload: CategoriaUpsert[] = cats.map((c) => ({
+    tnCategoryId: c.id,
+    nombre: pickLocale(c.name) ?? `Categoría ${c.id}`,
+    tnParentId: c.parent && c.parent > 0 ? c.parent : null,
+  }));
+  return upsertCategorias(payload);
+}
+
+async function generarSkuEnTiendanube(creds: TiendanubeCredentials, variant: TNVariant): Promise<string> {
+  const nuevoSku = `TN${variant.product_id}-${variant.id}`;
+  const url = `${API_BASE}/${creds.userId}/products/${variant.product_id}/variants/${variant.id}`;
+  const res = await fetch(url, { method: "PUT", headers: buildTnHeaders(creds), body: JSON.stringify({ sku: nuevoSku }) });
+  if (!res.ok) {
+    const detail = await getErrorMessageFromResponse(res, res.statusText || "Error generando SKU");
+    throw new Error(`No se pudo generar SKU para variante ${variant.id}: ${detail}`);
+  }
+  return nuevoSku;
+}
+
+async function resolveCreatedProductId(creds: TiendanubeCredentials, item: CatalogoItem, createdProduct: TNProduct | null, prodRes: Response): Promise<number> {
+  if (createdProduct?.id) return createdProduct.id;
+  if (typeof item.tnProductId === "number") return item.tnProductId;
+
+  const locationHeader = prodRes.headers.get("location") ?? prodRes.headers.get("Location");
+  const locationMatch = locationHeader?.match(/\/products\/(\d+)/i);
+  if (locationMatch?.[1]) return Number(locationMatch[1]);
+
+  const productName = item.nombre?.trim();
+  if (productName) {
+    const products = await tnGetPaginated<TNProduct>(creds, "products");
+    const match = products.find((candidate) => pickLocale(candidate.name)?.trim().toLowerCase() === productName.toLowerCase());
+    if (match?.id) return match.id;
+  }
+
+  throw new Error("Tiendanube no devolvió el id del producto creado.");
+}
+
+export async function resolveTiendanubeProductTarget(creds: TiendanubeCredentials, item: Pick<CatalogoItem, "tnProductId" | "tnVariantId" | "nombre" | "sku" | "codigoBarras">): Promise<{ productId: number; variantId?: number } | null> {
+  if (typeof item.tnProductId === "number") {
+    return { productId: item.tnProductId, ...(typeof item.tnVariantId === "number" ? { variantId: item.tnVariantId } : {}) };
+  }
+
+  const products = await tnGetPaginated<TNProduct>(creds, "products");
+  const normalizedName = item.nombre?.trim().toLowerCase();
+  const normalizedSku = item.sku?.trim().toLowerCase();
+  const normalizedBarcode = item.codigoBarras?.trim().toLowerCase();
+
+  for (const product of products) {
+    for (const variant of product.variants ?? []) {
+      const variantSku = variant.sku?.trim().toLowerCase();
+      const variantBarcode = variant.barcode?.trim().toLowerCase();
+      if (normalizedSku && variantSku && variantSku === normalizedSku) {
+        return { productId: product.id, variantId: variant.id };
+      }
+      if (normalizedBarcode && variantBarcode && variantBarcode === normalizedBarcode) {
+        return { productId: product.id, variantId: variant.id };
+      }
+    }
+
+    const candidateName = pickLocale(product.name)?.trim().toLowerCase();
+    if (normalizedName && candidateName && candidateName === normalizedName) {
+      return { productId: product.id };
+    }
+  }
+
+  return null;
+}
+
+async function normalizarProducto(
+  creds: TiendanubeCredentials,
+  prod: TNProduct,
+  catMap: Map<number, number>,
+  onProgress: (msg: string) => void,
+  options: { generateMissingSku?: boolean } = { generateMissingSku: true },
+): Promise<ProductoUpsert> {
+  const categoriasProducto = prod.categories ?? [];
+  const categoriaLocalIds = categoriasProducto
+    .map((c) => catMap.get(c.id))
+    .filter((id): id is number => typeof id === "number");
+  const categoriaNombre = categoriasProducto.length
+    ? pickLocale(categoriasProducto[categoriasProducto.length - 1].name)
+    : null;
+
+  const variantes: VarianteUpsert[] = [];
+  for (const v of prod.variants ?? []) {
+    let sku = v.sku?.trim() || null;
+    if (!sku && options.generateMissingSku !== false) {
+      onProgress(`Generando SKU para variante ${v.id} de "${pickLocale(prod.name)}"...`);
+      sku = await generarSkuEnTiendanube(creds, v);
+    }
+    const presentacion = (v.values ?? []).map(pickLocale).filter(Boolean).join(" / ") || null;
+    variantes.push({
+      tnVariantId: v.id,
+      variante: presentacion,
+      capacidadMedida: presentacion,
+      sku,
+      codigoBarras: v.barcode?.trim() || null,
+      precioVenta: Number(v.price ?? 0) || 0,
+      stock: Number(v.stock ?? 0) || 0,
+    });
+  }
+
+  return {
+    tnProductId: prod.id,
+    nombre: pickLocale(prod.name) ?? `Producto ${prod.id}`,
+    descripcion: pickLocale(prod.description),
+    marca: prod.brand?.trim() || null,
+    categoriaNombre,
+    categoriaLocalIds,
+    imagenUrl: prod.images?.[0]?.src ?? null,
+    seoTitulo: pickLocale(prod.seo_title),
+    seoDescripcion: pickLocale(prod.seo_description),
+    tags: prod.tags?.trim() || null,
+    publicado: prod.published !== false,
+    tnUpdatedAt: prod.updated_at ?? null,
+    variantes,
+  };
+}
+
+interface TNOrderProduct {
+  product_id: number;
+  variant_id: number;
+  name?: string | null;
+  quantity: number;
+  price?: string | number | null;
+}
+
+interface TNOrder {
+  id: number;
+  number: number | string;
+  status?: string | null;
+  payment_status?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+  total?: string | number | null;
+  products?: TNOrderProduct[];
+}
+
+export interface TiendanubeWebhookBridgeEvent {
+  key: string;
+  storeId: string;
+  event: string;
+  resourceId: string | null;
+  receivedAt: string;
+  payload: Record<string, unknown>;
+}
+
+interface TiendanubeOrderMatch {
+  id: number;
+  number: string;
+  quantity: number;
+  total: number | null;
+  createdAt: string | null;
+  paymentStatus: string | null;
+  status: string | null;
+}
+
+interface TiendanubePendingChangeRow {
+  id: number;
+  payloadJson: string;
+  productPayloadJson: string | null;
+  detectadoEn: string;
+}
+
+export type TiendanubeSyncChangeType = "PRODUCTO_NUEVO" | "VARIANTE_NUEVA" | "VENTA_TN" | "STOCK" | "PRECIO" | "DATOS" | "IMAGEN";
+
+export interface TiendanubeSyncChange {
+  id: string;
+  type: TiendanubeSyncChangeType;
+  producto: string;
+  variante: string | null;
+  detalle: string;
+  accion: string;
+  tnProductId: number;
+  tnVariantId: number | null;
+  inventarioId: number | null;
+  localStock: number | null;
+  remoteStock: number | null;
+  stockDelta: number | null;
+  localPrice: number | null;
+  remotePrice: number | null;
+  orderMatches?: TiendanubeOrderMatch[];
+  queueId?: number;
+  detectadoEn?: string | null;
+  productSnapshot?: ProductoUpsert | null;
+}
+
+export interface TiendanubeSyncPreview {
+  cambios: TiendanubeSyncChange[];
+  productos: ProductoUpsert[];
+  fetchedAt: string;
+  signature: string;
+  webhookEventKeys: string[];
+}
+
+function normalizeText(value: string | null | undefined) {
+  return (value ?? "").replace(/\s+/g, " ").trim().toLowerCase();
+}
+
+function normalizeDescription(value: string | null | undefined) {
+  return normalizeText((value ?? "")
+    .replace(/<br\s*\/?>/gi, " ")
+    .replace(/<\/p>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&"));
+}
+
+function getLeafCategoryName(value: string | null | undefined) {
+  const parts = value?.split("/").map((segment) => segment.trim()).filter(Boolean) ?? [];
+  return parts.length > 0 ? parts[parts.length - 1] : value;
+}
+
+function sameCategory(local: CatalogoItem, remote: ProductoUpsert) {
+  const localCategory = getLeafCategoryName(local.categoria);
+  const remoteCategory = getLeafCategoryName(remote.categoriaNombre);
+  const hasMatchingName = Boolean(normalizeText(localCategory)) && Boolean(normalizeText(remoteCategory)) && normalizeText(localCategory) === normalizeText(remoteCategory);
+  const localIds = new Set((local.tnCategoryIds ?? []).filter((id) => typeof id === "number"));
+  const remoteIds = new Set((remote.categoriaLocalIds ?? []).filter((id) => typeof id === "number"));
+  if (localIds.size > 0 && remoteIds.size > 0) {
+    if (localIds.size !== remoteIds.size) return hasMatchingName;
+    for (const id of localIds) if (!remoteIds.has(id)) return hasMatchingName;
+    return true;
+  }
+
+  if (!normalizeText(localCategory) || !normalizeText(remoteCategory)) return true;
+  return normalizeText(localCategory) === normalizeText(remoteCategory);
+}
+
+function isRemoteNewerThanLocal(localUpdatedAt: string | null | undefined, remoteUpdatedAt: string | null | undefined) {
+  const localTime = Date.parse(localUpdatedAt ?? "");
+  const remoteTime = Date.parse(remoteUpdatedAt ?? "");
+  if (!Number.isFinite(localTime) || !Number.isFinite(remoteTime)) return false;
+  return remoteTime > localTime + 1000;
+}
+
+function getMetadataDifferences(local: CatalogoItem, remote: ProductoUpsert) {
+  const differences: string[] = [];
+  if (normalizeText(local.nombre) !== normalizeText(remote.nombre)) differences.push("nombre");
+  if (normalizeDescription(local.descripcion) !== normalizeDescription(remote.descripcion)) differences.push("descripción");
+  if (normalizeText(local.marca) !== normalizeText(remote.marca)) differences.push("marca");
+  if (!sameCategory(local, remote)) differences.push("categoría");
+  if (Boolean(local.publicado) !== remote.publicado) differences.push("visibilidad");
+  return differences;
+}
+
+function toLocalizedEs(value: string | null | undefined) {
+  return { es: value ?? "" };
+}
+
+function productMetadataMismatchesLocal(item: CatalogoItem, product: TNProduct, expectedCategoryIds: number[]) {
+  const mismatches: string[] = [];
+  if (normalizeText(item.nombre) !== normalizeText(pickLocale(product.name))) mismatches.push("nombre");
+  if (normalizeDescription(item.descripcion) !== normalizeDescription(pickLocale(product.description))) mismatches.push("descripción");
+  if (normalizeText(item.marca) !== normalizeText(product.brand)) mismatches.push("marca");
+  if (normalizeText(item.tags) !== normalizeText(product.tags)) mismatches.push("tags");
+  if (normalizeText(item.seoTitulo) !== normalizeText(typeof product.seo_title === "string" ? product.seo_title : pickLocale(product.seo_title))) mismatches.push("SEO título");
+  if (normalizeText(item.seoDescripcion) !== normalizeText(typeof product.seo_description === "string" ? product.seo_description : pickLocale(product.seo_description))) mismatches.push("SEO descripción");
+  if (Boolean(item.publicado) !== (product.published !== false)) mismatches.push("visibilidad");
+
+  if (expectedCategoryIds.length > 0) {
+    const remoteIds = new Set((product.categories ?? []).map((category) => category.id).filter((id) => typeof id === "number"));
+    for (const categoryId of expectedCategoryIds) {
+      if (!remoteIds.has(categoryId)) {
+        mismatches.push("categoría");
+        break;
+      }
+    }
+  }
+
+  return mismatches;
+}
+function moneyValue(value: number | null | undefined) {
+  return Math.round(Number(value ?? 0) * 100) / 100;
+}
+
+function variantDisplay(value: string | null | undefined) {
+  return value?.trim() || "Variante principal";
+}
+
+function buildLocalIndexes(catalogo: CatalogoItem[]) {
+  const byProduct = new Map<number, CatalogoItem[]>();
+  const byVariant = new Map<number, CatalogoItem>();
+  for (const item of catalogo) {
+    if (typeof item.tnProductId === "number") {
+      const list = byProduct.get(item.tnProductId) ?? [];
+      list.push(item);
+      byProduct.set(item.tnProductId, list);
+    }
+    if (typeof item.tnVariantId === "number") {
+      byVariant.set(item.tnVariantId, item);
+    }
+  }
+  return { byProduct, byVariant };
+}
+
+function getDefaultOrdersMinDate() {
+  const date = new Date();
+  date.setDate(date.getDate() - 14);
+  return date.toISOString();
+}
+
+async function obtenerOrdenesRecientesTiendanube(
+  creds: TiendanubeCredentials,
+  onProgress: (msg: string) => void,
+  updatedAtMin?: string | null,
+): Promise<TNOrder[]> {
+  try {
+    onProgress("Descargando ventas recientes de Tiendanube...");
+    const query: Record<string, string> = {
+      status: "any",
+      payment_status: "any",
+      updated_at_min: updatedAtMin || getDefaultOrdersMinDate(),
+    };
+    return await tnGetPaginated<TNOrder>(creds, "orders", query);
+  } catch (error) {
+    console.warn("No se pudieron leer órdenes de Tiendanube", error);
+    onProgress(`Aviso: no se pudieron leer ventas de Tiendanube (${error instanceof Error ? error.message : String(error)}). Se revisará sólo stock/productos.`);
+    return [];
+  }
+}
+
+function isCancelledOrRejectedOrder(order: TNOrder) {
+  const status = String(order.status ?? "").toLowerCase();
+  const paymentStatus = String(order.payment_status ?? "").toLowerCase();
+  return status === "cancelled" || ["voided", "refunded", "partially_refunded"].includes(paymentStatus);
+}
+
+function isPaidOrder(order: TNOrder) {
+  return !isCancelledOrRejectedOrder(order) && String(order.payment_status ?? "").toLowerCase() === "paid";
+}
+
+function isUnconfirmedOrder(order: TNOrder) {
+  return !isPaidOrder(order);
+}
+
+function buildOrderMatchesByVariant(orders: TNOrder[], shouldInclude: (order: TNOrder) => boolean) {
+  const map = new Map<number, TiendanubeOrderMatch[]>();
+  for (const order of orders) {
+    if (!shouldInclude(order)) continue;
+    for (const product of order.products ?? []) {
+      const variantId = Number(product.variant_id);
+      if (!Number.isFinite(variantId)) continue;
+      const entry: TiendanubeOrderMatch = {
+        id: Number(order.id),
+        number: String(order.number ?? order.id),
+        quantity: Number(product.quantity ?? 0),
+        total: order.total == null ? null : Number(order.total),
+        createdAt: order.created_at ?? null,
+        paymentStatus: order.payment_status ?? null,
+        status: order.status ?? null,
+      };
+      const list = map.get(variantId) ?? [];
+      list.push(entry);
+      map.set(variantId, list);
+    }
+  }
+  return map;
+}
+
+function getMatchedOrderQuantity(matches: TiendanubeOrderMatch[]) {
+  return matches.reduce((total, match) => total + Number(match.quantity ?? 0), 0);
+}
+
+function orderReference(match: TiendanubeOrderMatch) {
+  return `Tiendanube #${match.number}`;
+}
+
+function sortOrderMatchesByDate(matches: TiendanubeOrderMatch[]) {
+  return [...matches].sort((a, b) => {
+    const aTime = Date.parse(a.createdAt ?? "");
+    const bTime = Date.parse(b.createdAt ?? "");
+    if (Number.isFinite(aTime) && Number.isFinite(bTime) && aTime !== bTime) return aTime - bTime;
+    return Number(a.id) - Number(b.id);
+  });
+}
+
+async function filterUnappliedOrderMatches(inventarioId: number, matches: TiendanubeOrderMatch[]) {
+  const pending: TiendanubeOrderMatch[] = [];
+  for (const match of matches) {
+    const alreadyApplied = await hasActiveMovimientoStockOperacion({
+      inventarioId,
+      tipoMovimiento: "SALIDA",
+      concepto: "VENTA",
+      operacionId: orderReference(match),
+    });
+    if (!alreadyApplied) pending.push(match);
+  }
+  return pending;
+}
+
+function describeOrderMatches(matches: TiendanubeOrderMatch[], delta: number) {
+  if (matches.length === 0) return null;
+  const totalQuantity = matches.reduce((total, match) => total + Number(match.quantity ?? 0), 0);
+  const refs = matches.slice(0, 3).map((match) => `#${match.number}`).join(", ");
+  const suffix = matches.length > 3 ? ` y ${matches.length - 3} más` : "";
+  return `Venta/s Tiendanube ${refs}${suffix}: ${totalQuantity} unidad/es vendida/s. Stock local ${delta === 0 ? "sin diferencia final" : `con diferencia final de ${Math.abs(delta)} u.`}`;
+}
+
+function buildSyncPreviewSignature(cambios: TiendanubeSyncChange[]) {
+  return cambios
+    .map((cambio) => [
+      cambio.id,
+      cambio.type,
+      cambio.tnProductId,
+      cambio.tnVariantId ?? "",
+      cambio.localStock ?? "",
+      cambio.remoteStock ?? "",
+      cambio.localPrice ?? "",
+      cambio.remotePrice ?? "",
+      (cambio.orderMatches ?? []).map((order) => `${order.id}:${order.quantity}`).join("|"),
+    ].join(":"))
+    .sort()
+    .join(";");
+}
+
+function hashString(value: string) {
+  let hash = 0;
+  for (let index = 0; index < value.length; index++) {
+    hash = Math.imul(31, hash) + value.charCodeAt(index) | 0;
+  }
+  return Math.abs(hash).toString(36);
+}
+
+function buildPendingChangeKey(cambio: TiendanubeSyncChange) {
+  return [
+    cambio.type,
+    cambio.tnProductId,
+    cambio.tnVariantId ?? "",
+    cambio.inventarioId ?? "",
+    cambio.localStock ?? "",
+    cambio.remoteStock ?? "",
+    cambio.localPrice ?? "",
+    cambio.remotePrice ?? "",
+    hashString(JSON.stringify({
+      detalle: cambio.detalle,
+      accion: cambio.accion,
+      orderMatches: cambio.orderMatches ?? [],
+    })),
+  ].join(":");
+}
+
+function buildPendingOrderTarget(cambio: TiendanubeSyncChange) {
+  const scope = cambio.type === "DATOS" || cambio.type === "PRODUCTO_NUEVO" || cambio.type === "IMAGEN"
+    ? "PRODUCTO"
+    : "VARIANTE";
+  return [scope, cambio.tnProductId, cambio.tnVariantId ?? ""].join(":");
+}
+
+async function getQueueDatabase() {
+  return (await import("@/database/db")).getDatabase();
+}
+
+async function clearPendingLocalEchoChanges(
+  tnProductId: number | null | undefined,
+  tnVariantId: number | null | undefined,
+  types: TiendanubeSyncChangeType[] = ["STOCK", "PRECIO"],
+) {
+  if (!tnProductId || !tnVariantId || types.length === 0) return;
+  const db = await getQueueDatabase();
+  const placeholders = types.map((_, index) => `$${index + 3}`).join(", ");
+  await db.execute(
+    `UPDATE tiendanube_cambios_pendientes
+     SET estado = 'IGNORADO', aplicado_en = CURRENT_TIMESTAMP
+     WHERE estado = 'PENDIENTE'
+       AND tn_product_id = $1
+       AND tn_variant_id = $2
+       AND type IN (${placeholders})`,
+    [tnProductId, tnVariantId, ...types],
+  );
+}
+
+function findRemoteVariant(productos: Map<number, ProductoUpsert>, tnProductId: number, tnVariantId: number | null | undefined) {
+  if (!tnVariantId) return null;
+  return productos.get(tnProductId)?.variantes.find((variante) => variante.tnVariantId === tnVariantId) ?? null;
+}
+
+function isStaleLocalEchoChange(
+  cambio: TiendanubeSyncChange,
+  catalogoByVariant: Map<number, CatalogoItem>,
+  productById: Map<number, ProductoUpsert>,
+) {
+  if (cambio.type !== "STOCK" && cambio.type !== "PRECIO") return false;
+  if (!cambio.tnVariantId) return false;
+
+  const localVariant = catalogoByVariant.get(cambio.tnVariantId);
+  const remoteVariant = findRemoteVariant(productById, cambio.tnProductId, cambio.tnVariantId);
+  if (!localVariant || !remoteVariant) return false;
+
+  if (cambio.type === "STOCK") {
+    return Number(localVariant.stockActual ?? 0) === Number(remoteVariant.stock ?? 0);
+  }
+
+  return moneyValue(localVariant.precioVenta) === moneyValue(remoteVariant.precioVenta);
+}
+
+async function syncPendingChangeQueue(cambios: TiendanubeSyncChange[], productos: ProductoUpsert[], catalogo: CatalogoItem[]) {
+  const db = await getQueueDatabase();
+  const productById = new Map(productos.map((producto) => [producto.tnProductId, producto]));
+  const catalogoByVariant = buildLocalIndexes(catalogo).byVariant;
+
+  for (const cambio of cambios) {
+    const productPayload = productById.get(cambio.tnProductId) ?? null;
+    await db.execute(
+      `INSERT OR IGNORE INTO tiendanube_cambios_pendientes (
+        change_key, type, tn_product_id, tn_variant_id, payload_json, product_payload_json
+      ) VALUES ($1, $2, $3, $4, $5, $6)`,
+      [
+        buildPendingChangeKey(cambio),
+        cambio.type,
+        cambio.tnProductId,
+        cambio.tnVariantId,
+        JSON.stringify({ ...cambio, queueId: undefined, detectadoEn: undefined }),
+        productPayload ? JSON.stringify(productPayload) : null,
+      ],
+    );
+  }
+
+  const rows = await db.select<TiendanubePendingChangeRow[]>(
+    `SELECT
+      id,
+      payload_json AS payloadJson,
+      product_payload_json AS productPayloadJson,
+      detectado_en AS detectadoEn
+     FROM tiendanube_cambios_pendientes
+     WHERE estado = 'PENDIENTE'
+     ORDER BY detectado_en ASC, id ASC`,
+  );
+
+  const queuedChanges: TiendanubeSyncChange[] = [];
+  const queuedProducts: ProductoUpsert[] = [];
+  for (const row of rows) {
+    try {
+      const change = JSON.parse(row.payloadJson) as TiendanubeSyncChange;
+      if (isStaleLocalEchoChange(change, catalogoByVariant, productById)) {
+        await markPendingTiendanubeChange(row.id, "IGNORADO");
+        continue;
+      }
+      const productSnapshot = row.productPayloadJson ? JSON.parse(row.productPayloadJson) as ProductoUpsert : null;
+      queuedChanges.push({
+        ...change,
+        id: `${change.id}:pendiente-${row.id}`,
+        queueId: row.id,
+        detectadoEn: row.detectadoEn,
+        productSnapshot,
+      });
+      if (productSnapshot) queuedProducts.push(productSnapshot);
+    } catch (error) {
+      console.warn("No se pudo leer un cambio pendiente de Tiendanube", row.id, error);
+    }
+  }
+
+  return { cambios: queuedChanges, productos: queuedProducts };
+}
+
+async function markPendingTiendanubeChange(queueId: number | null | undefined, estado: "APLICADO" | "IGNORADO") {
+  if (!queueId) return;
+  const db = await getQueueDatabase();
+  await db.execute(
+    `UPDATE tiendanube_cambios_pendientes
+     SET estado = $1, aplicado_en = CURRENT_TIMESTAMP
+     WHERE id = $2`,
+    [estado, queueId],
+  );
+}
+
+export async function revisarCambiosTiendanube(
+  onProgress: (msg: string) => void,
+  options: { updatedAtMin?: string | null; webhookEvents?: TiendanubeWebhookBridgeEvent[] } = {},
+): Promise<TiendanubeSyncPreview> {
+  const creds = getTiendanubeCredentials();
+  if (!creds) throw new Error("No hay credenciales activas.");
+
+  onProgress("Validando conexión con Tiendanube...");
+  const connection = await validateTiendanubeConnection();
+  if (!connection.ok) throw new Error(connection.message);
+
+  onProgress("Descargando categorías de Tiendanube...");
+  const catMap = await importarCategorias(creds);
+
+  onProgress("Descargando productos de Tiendanube para revisar cambios...");
+  const query: Record<string, string> = {};
+  const webhookDates = (options.webhookEvents ?? [])
+    .map((event) => Date.parse(event.receivedAt))
+    .filter((time) => Number.isFinite(time));
+  const earliestWebhookDate = webhookDates.length > 0
+    ? new Date(Math.min(...webhookDates) - 5 * 60 * 1000).toISOString()
+    : null;
+  const updatedAtMin = earliestWebhookDate ?? options.updatedAtMin;
+  if (updatedAtMin) query.updated_at_min = updatedAtMin;
+  const productosTn = await tnGetPaginated<TNProduct>(creds, "products", query);
+
+  const ordenes = await obtenerOrdenesRecientesTiendanube(creds, onProgress, updatedAtMin);
+  const productosById = new Map(productosTn.map((product) => [product.id, product]));
+  const orderProductIds = new Set<number>();
+  for (const order of ordenes) {
+    if (!isPaidOrder(order)) continue;
+    for (const product of order.products ?? []) {
+      const productId = Number(product.product_id);
+      if (Number.isFinite(productId) && !productosById.has(productId)) orderProductIds.add(productId);
+    }
+  }
+  for (const productId of orderProductIds) {
+    try {
+      const product = await tnGetOne<TNProduct>(creds, `products/${productId}`);
+      productosById.set(product.id, product);
+    } catch (error) {
+      onProgress(`Aviso: no se pudo leer producto ${productId} asociado a una venta (${error instanceof Error ? error.message : String(error)}).`);
+    }
+  }
+
+  const productos = await Promise.all(Array.from(productosById.values()).map((prod) => normalizarProducto(creds, prod, catMap, onProgress, { generateMissingSku: false })));
+  const paidOrderMatchesByVariant = buildOrderMatchesByVariant(ordenes, isPaidOrder);
+  const unconfirmedOrderMatchesByVariant = buildOrderMatchesByVariant(ordenes, isUnconfirmedOrder);
+
+  onProgress("Comparando Tiendanube contra la base local...");
+  const catalogo = await getCatalogoProductos();
+  const { byProduct, byVariant } = buildLocalIndexes(catalogo);
+  const cambios: TiendanubeSyncChange[] = [];
+
+  for (const producto of productos) {
+    const localProductRows = byProduct.get(producto.tnProductId) ?? [];
+    const existingProduct = localProductRows[0];
+
+    if (!existingProduct) {
+      const unidades = producto.variantes.reduce((total, variante) => total + Number(variante.stock ?? 0), 0);
+      cambios.push({
+        id: `producto-${producto.tnProductId}`,
+        type: "PRODUCTO_NUEVO",
+        producto: producto.nombre,
+        variante: producto.variantes.length > 1 ? `${producto.variantes.length} variantes` : variantDisplay(producto.variantes[0]?.variante),
+        detalle: `Producto existe en Tiendanube y no está en el programa. Stock total: ${unidades} u.`,
+        accion: "Crear producto local con sus variantes",
+        tnProductId: producto.tnProductId,
+        tnVariantId: null,
+        inventarioId: null,
+        localStock: null,
+        remoteStock: unidades,
+        stockDelta: null,
+        localPrice: null,
+        remotePrice: producto.variantes[0]?.precioVenta ?? null,
+      });
+      continue;
+    }
+
+    const localImageUrl = (existingProduct.imagenUrl ?? "").trim();
+    const remoteImageUrl = (producto.imagenUrl ?? "").trim();
+    if (!localImageUrl && remoteImageUrl) {
+      cambios.push({
+        id: `imagen-${producto.tnProductId}`,
+        type: "IMAGEN",
+        producto: producto.nombre,
+        variante: null,
+        detalle: "El producto local no tiene imagen y Tiendanube tiene una imagen principal disponible.",
+        accion: "Completar imagen local desde Tiendanube",
+        tnProductId: producto.tnProductId,
+        tnVariantId: null,
+        inventarioId: existingProduct.inventarioId,
+        localStock: null,
+        remoteStock: null,
+        stockDelta: null,
+        localPrice: null,
+        remotePrice: null,
+      });
+    }
+    const metadataDifferences = getMetadataDifferences(existingProduct, producto);
+    const metadataChanged = metadataDifferences.length > 0 && isRemoteNewerThanLocal(existingProduct.tnUpdatedAt, producto.tnUpdatedAt);
+
+    if (metadataChanged) {
+      cambios.push({
+        id: `datos-${producto.tnProductId}`,
+        type: "DATOS",
+        producto: producto.nombre,
+        variante: null,
+        detalle: `Tiendanube tiene datos más nuevos: ${metadataDifferences.join(", ")}.`,
+        accion: "Actualizar datos locales del producto",
+        tnProductId: producto.tnProductId,
+        tnVariantId: null,
+        inventarioId: existingProduct.inventarioId,
+        localStock: null,
+        remoteStock: null,
+        stockDelta: null,
+        localPrice: null,
+        remotePrice: null,
+      });
+    }
+
+    for (const variante of producto.variantes) {
+      const localVariant = byVariant.get(variante.tnVariantId);
+      if (!localVariant) {
+        cambios.push({
+          id: `variante-${producto.tnProductId}-${variante.tnVariantId}`,
+          type: "VARIANTE_NUEVA",
+          producto: producto.nombre,
+          variante: variantDisplay(variante.variante),
+          detalle: `Variante existe en Tiendanube y no está en el programa. Stock: ${variante.stock} u.`,
+          accion: "Crear variante local",
+          tnProductId: producto.tnProductId,
+          tnVariantId: variante.tnVariantId,
+          inventarioId: null,
+          localStock: null,
+          remoteStock: variante.stock,
+          stockDelta: null,
+          localPrice: null,
+          remotePrice: variante.precioVenta,
+        });
+        continue;
+      }
+
+      const localStock = Number(localVariant.stockActual ?? 0);
+      const remoteStock = Number(variante.stock ?? 0);
+      if (localStock !== remoteStock) {
+        const delta = remoteStock - localStock;
+        const paidOrderMatches = await filterUnappliedOrderMatches(localVariant.inventarioId, paidOrderMatchesByVariant.get(variante.tnVariantId) ?? []);
+        const unconfirmedOrderMatches = delta < 0 ? (unconfirmedOrderMatchesByVariant.get(variante.tnVariantId) ?? []) : [];
+        const paidQuantity = getMatchedOrderQuantity(paidOrderMatches);
+        const isConfirmedTiendanubeSale = paidOrderMatches.length > 0 && paidQuantity > 0;
+
+        const unconfirmedQuantity = getMatchedOrderQuantity(unconfirmedOrderMatches);
+        const unexplainedDrop = Math.max(0, Math.abs(delta) - paidQuantity);
+        const stockDropLooksReservedByUnconfirmedOrder = unconfirmedOrderMatches.length > 0 && unconfirmedQuantity >= unexplainedDrop;
+
+        if (delta < 0 && !isConfirmedTiendanubeSale && stockDropLooksReservedByUnconfirmedOrder) {
+          onProgress(`Venta Tiendanube pendiente/no pagada para "${producto.nombre}" (${variantDisplay(variante.variante)}). No se descuenta stock local hasta que el pago figure como confirmado.`);
+        } else {
+          const orderDetail = isConfirmedTiendanubeSale ? describeOrderMatches(paidOrderMatches, delta) : null;
+          const stockBeforePaidSale = remoteStock + paidQuantity;
+          const hasOtherRemoteAdjustment = isConfirmedTiendanubeSale && stockBeforePaidSale !== localStock;
+          cambios.push({
+            id: `${isConfirmedTiendanubeSale ? "venta" : "stock"}-${producto.tnProductId}-${variante.tnVariantId}`,
+            type: isConfirmedTiendanubeSale ? "VENTA_TN" : "STOCK",
+            producto: producto.nombre,
+            variante: variantDisplay(variante.variante),
+            detalle: hasOtherRemoteAdjustment
+              ? `${orderDetail} Tiendanube tambien tiene un ajuste previo pendiente: stock local ${localStock} -> stock antes de venta ${stockBeforePaidSale} -> stock final ${remoteStock}.`
+              : orderDetail ?? (delta < 0
+              ? `Tiendanube tiene ${Math.abs(delta)} unidad/es menos. No coincide exactamente con ventas pagadas; revisar antes de aplicar.`
+              : `Tiendanube tiene ${delta} unidad/es mas. Posible reposicion o ajuste hecho en la tienda online.`),
+            accion: isConfirmedTiendanubeSale ? "Registrar stock actualizado por venta Tiendanube pagada" : "Tomar stock de Tiendanube en el programa",
+            tnProductId: producto.tnProductId,
+            tnVariantId: variante.tnVariantId,
+            inventarioId: localVariant.inventarioId,
+            localStock,
+            remoteStock,
+            stockDelta: delta,
+            localPrice: moneyValue(localVariant.precioVenta),
+            remotePrice: moneyValue(variante.precioVenta),
+            orderMatches: isConfirmedTiendanubeSale ? paidOrderMatches : undefined,
+          });
+        }
+      }
+
+      const localPrice = moneyValue(localVariant.precioVenta);
+      const remotePrice = moneyValue(variante.precioVenta);
+      if (localPrice !== remotePrice) {
+        cambios.push({
+          id: `precio-${producto.tnProductId}-${variante.tnVariantId}`,
+          type: "PRECIO",
+          producto: producto.nombre,
+          variante: variantDisplay(variante.variante),
+          detalle: `Precio local $${localPrice.toLocaleString("es-AR")} y Tiendanube $${remotePrice.toLocaleString("es-AR")}.`,
+          accion: "Tomar precio de Tiendanube en el programa",
+          tnProductId: producto.tnProductId,
+          tnVariantId: variante.tnVariantId,
+          inventarioId: localVariant.inventarioId,
+          localStock: localStock,
+          remoteStock: remoteStock,
+          stockDelta: null,
+          localPrice,
+          remotePrice,
+        });
+      }
+    }
+  }
+
+  const pending = await syncPendingChangeQueue(cambios, productos, catalogo);
+
+  return {
+    cambios: pending.cambios,
+    productos: [...pending.productos, ...productos],
+    fetchedAt: new Date().toISOString(),
+    signature: buildSyncPreviewSignature(pending.cambios),
+    webhookEventKeys: (options.webhookEvents ?? []).map((event) => event.key),
+  };
+}
+
+export async function aplicarCambiosSeleccionadosTiendanube(
+  preview: TiendanubeSyncPreview,
+  selectedIds: string[],
+  onProgress: (msg: string) => void,
+): Promise<{ aplicados: number; errores: number }> {
+  const selected = new Set(selectedIds);
+  if (selected.size === 0) throw new Error("Selecciona al menos un cambio para aplicar.");
+
+  for (const cambio of preview.cambios) {
+    if (!selected.has(cambio.id) || !cambio.queueId) continue;
+    const target = buildPendingOrderTarget(cambio);
+    const hasEarlierUnselected = preview.cambios.some((other) =>
+      other.queueId
+      && other.queueId < cambio.queueId!
+      && buildPendingOrderTarget(other) === target
+      && !selected.has(other.id)
+    );
+    if (hasEarlierUnselected) {
+      throw new Error(`Hay cambios anteriores pendientes para "${cambio.producto}" (${variantDisplay(cambio.variante)}). Aplica primero los avisos más antiguos para no saltar datos.`);
+    }
+  }
+
+  const productosById = new Map(preview.productos.map((producto) => [producto.tnProductId, producto]));
+  const productLevelChangeIds = new Set<string>();
+
+  let aplicados = 0;
+  let errores = 0;
+
+  for (const cambio of preview.cambios) {
+    if (!selected.has(cambio.id)) continue;
+    if (cambio.type !== "PRODUCTO_NUEVO" && cambio.type !== "VARIANTE_NUEVA" && cambio.type !== "DATOS") continue;
+    productLevelChangeIds.add(cambio.id);
+    const producto = cambio.productSnapshot ?? productosById.get(cambio.tnProductId);
+    if (!producto) continue;
+    try {
+      onProgress(`Aplicando producto "${producto.nombre}" desde Tiendanube...`);
+      await upsertProductoDesdeTiendanube(producto);
+      await markPendingTiendanubeChange(cambio.queueId, "APLICADO");
+      aplicados++;
+    } catch (error) {
+      console.warn("Error aplicando producto Tiendanube", cambio.tnProductId, error);
+      errores++;
+    }
+  }
+
+  for (const cambio of preview.cambios) {
+    if (!selected.has(cambio.id) || productLevelChangeIds.has(cambio.id)) continue;
+    try {
+      if ((cambio.type === "STOCK" || cambio.type === "VENTA_TN") && cambio.inventarioId != null && cambio.tnVariantId != null && cambio.remoteStock != null) {
+        onProgress(`Aplicando stock de "${cambio.producto}" (${variantDisplay(cambio.variante)})...`);
+        const isTiendanubeSale = cambio.type === "VENTA_TN";
+        const saleUnits = isTiendanubeSale ? getMatchedOrderQuantity(cambio.orderMatches ?? []) : Math.abs(Number(cambio.stockDelta ?? 0));
+        const unitPrice = Number(cambio.localPrice ?? cambio.remotePrice ?? 0);
+        if (isTiendanubeSale && saleUnits > 0 && cambio.localStock != null) {
+          const stockBeforeSale = Number(cambio.remoteStock) + saleUnits;
+          if (stockBeforeSale !== Number(cambio.localStock)) {
+            const firstSaleDate = sortOrderMatchesByDate(cambio.orderMatches ?? [])[0]?.createdAt;
+            await aplicarStockDesdeTiendanube({
+              inventarioId: cambio.inventarioId,
+              tnProductId: cambio.tnProductId,
+              tnVariantId: cambio.tnVariantId,
+              stock: stockBeforeSale,
+              motivo: `Ajuste previo de Tiendanube antes de venta pagada (${cambio.localStock} -> ${stockBeforeSale}).`,
+              referencia: `TN-P${cambio.tnProductId}-V${cambio.tnVariantId}-PREVENTA`,
+              fechaMovimiento: firstSaleDate ?? undefined,
+            });
+          }
+        }
+        if (isTiendanubeSale) {
+          let runningStock = Number(cambio.remoteStock) + saleUnits;
+          for (const match of sortOrderMatchesByDate(cambio.orderMatches ?? [])) {
+            const reference = orderReference(match);
+            const alreadyApplied = await hasActiveMovimientoStockOperacion({
+              inventarioId: cambio.inventarioId,
+              tipoMovimiento: "SALIDA",
+              concepto: "VENTA",
+              operacionId: reference,
+            });
+            if (alreadyApplied) {
+              onProgress(`Venta ${reference} ya estaba aplicada para "${cambio.producto}". Se omite el duplicado.`);
+              continue;
+            }
+            const quantity = Math.max(0, Number(match.quantity ?? 0));
+            runningStock -= quantity;
+            await aplicarStockDesdeTiendanube({
+              inventarioId: cambio.inventarioId,
+              tnProductId: cambio.tnProductId,
+              tnVariantId: cambio.tnVariantId,
+              stock: runningStock,
+              tipoMovimiento: "SALIDA",
+              concepto: "VENTA",
+              motivo: `Venta Tiendanube #${match.number}: ${quantity} unidad/es vendida/s.`,
+              referencia: reference,
+              importeTotal: quantity * unitPrice,
+              fechaMovimiento: match.createdAt ?? undefined,
+            });
+          }
+        } else {
+          await aplicarStockDesdeTiendanube({
+            inventarioId: cambio.inventarioId,
+            tnProductId: cambio.tnProductId,
+            tnVariantId: cambio.tnVariantId,
+            stock: cambio.remoteStock,
+          });
+        }
+        await markPendingTiendanubeChange(cambio.queueId, "APLICADO");
+        aplicados++;
+      }
+      if (cambio.type === "PRECIO" && cambio.inventarioId != null && cambio.remotePrice != null) {
+        onProgress(`Aplicando precio de "${cambio.producto}" (${variantDisplay(cambio.variante)})...`);
+        await aplicarPrecioDesdeTiendanube({ inventarioId: cambio.inventarioId, precioVenta: cambio.remotePrice });
+        await markPendingTiendanubeChange(cambio.queueId, "APLICADO");
+        aplicados++;
+      }
+      if (cambio.type === "IMAGEN") {
+        const producto = cambio.productSnapshot ?? productosById.get(cambio.tnProductId);
+        const remoteImageUrl = producto?.imagenUrl?.trim();
+        if (!producto || !remoteImageUrl) throw new Error("Tiendanube no devolvió una imagen válida para aplicar.");
+        onProgress(`Completando imagen de "${cambio.producto}" desde Tiendanube...`);
+        await setTnUpdatedAt(cambio.tnProductId, producto.tnUpdatedAt ?? null, remoteImageUrl);
+        await markPendingTiendanubeChange(cambio.queueId, "APLICADO");
+        aplicados++;
+      }
+    } catch (error) {
+      console.warn("Error aplicando cambio Tiendanube", cambio.id, error);
+      errores++;
+    }
+  }
+
+  const nowIso = new Date().toISOString();
+  localStorage.setItem(SYNC_SINCE_KEY, nowIso);
+  localStorage.setItem(AUTO_CHECK_SINCE_KEY, nowIso);
+  localStorage.setItem(SYNC_STATUS_KEY, new Date().toLocaleString());
+  onProgress(`Sincronización aplicada: ${aplicados} cambio/s, ${errores} error/es.`);
+  return { aplicados, errores };
+}
+export async function importarDesdeTiendanube(
+  onProgress: (msg: string) => void,
+  options: { updatedAtMin?: string | null; webhookEvents?: TiendanubeWebhookBridgeEvent[] } = {},
+): Promise<{ procesados: number; errores: number }> {
+  const creds = getTiendanubeCredentials();
+  if (!creds) throw new Error("No hay credenciales activas.");
+
+  onProgress("Descargando categorías de Tiendanube...");
+  const catMap = await importarCategorias(creds);
+
+  onProgress("Descargando productos de Tiendanube...");
+  const query: Record<string, string> = {};
+  if (options.updatedAtMin) query.updated_at_min = options.updatedAtMin;
+  const productos = await tnGetPaginated<TNProduct>(creds, "products", query);
+
+  let procesados = 0;
+  let errores = 0;
+  for (const prod of productos) {
+    try {
+      const upsert = await normalizarProducto(creds, prod, catMap, onProgress);
+      onProgress(`Importando "${upsert.nombre}" (${upsert.variantes.length} variante/s)...`);
+      await upsertProductoDesdeTiendanube(upsert);
+      procesados++;
+    } catch (e) {
+      console.warn("Error importando producto", prod?.id, e);
+      errores++;
+    }
+  }
+
+  const nowIso = new Date().toISOString();
+  localStorage.setItem(SYNC_SINCE_KEY, nowIso);
+  localStorage.setItem(SYNC_STATUS_KEY, new Date().toLocaleString());
+  onProgress(`Importación completa: ${procesados} producto/s procesado/s, ${errores} con error.`);
+  return { procesados, errores };
+}
+
+export function buildTiendanubeProductMetadataPayload(item: Pick<CatalogoItem, "nombre" | "descripcion" | "marca" | "tags" | "publicado" | "seoTitulo" | "seoDescripcion">) {
+  return {
+    name: toLocalizedEs(item.nombre),
+    description: toLocalizedEs(item.descripcion),
+    brand: item.marca ?? "",
+    tags: item.tags ?? "",
+    published: item.publicado !== 0,
+    seo_title: item.seoTitulo ?? "",
+    seo_description: item.seoDescripcion ?? "",
+  };
+}
+
+export function buildTiendanubeProductPayload(item: Pick<CatalogoItem, "nombre" | "descripcion" | "marca" | "tags" | "publicado" | "seoTitulo" | "seoDescripcion" | "precioVenta" | "stockActual" | "sku" | "codigoBarras">) {
+  return {
+    ...buildTiendanubeProductMetadataPayload(item),
+    price: item.precioVenta ?? 0,
+    stock: item.stockActual ?? 0,
+    sku: item.sku ?? null,
+    barcode: item.codigoBarras ?? null,
+  };
+}
+
+function findCategoryIdInTree(nodes: Awaited<ReturnType<typeof getCategoriasArbol>>, pathSegments: string[], parentPath: string[] = []): number | null {
+  for (const node of nodes) {
+    const nodePath = [...parentPath, node.nombre];
+    const normalizedNodePath = nodePath.map((segment) => segment.trim().toLowerCase());
+    const normalizedTargetPath = pathSegments.map((segment) => segment.trim().toLowerCase());
+
+    if (normalizedNodePath.length === normalizedTargetPath.length && normalizedNodePath.every((segment, index) => segment === normalizedTargetPath[index])) {
+      return node.tnCategoryId ?? null;
+    }
+
+    const childMatch = findCategoryIdInTree(node.hijos, pathSegments, nodePath);
+    if (childMatch != null) return childMatch;
+  }
+
+  return null;
+}
+
+function findCategoryIdByName(nodes: Awaited<ReturnType<typeof getCategoriasArbol>>, categoryName: string): number | null {
+  const normalizedName = categoryName.trim().toLowerCase();
+  for (const node of nodes) {
+    if (node.nombre.trim().toLowerCase() === normalizedName && node.tnCategoryId != null) {
+      return node.tnCategoryId;
+    }
+
+    const childMatch = findCategoryIdByName(node.hijos, categoryName);
+    if (childMatch != null) return childMatch;
+  }
+
+  return null;
+}
+
+export async function resolveTiendanubeCategoryIds(item: Pick<CatalogoItem, "categoria" | "tnCategoryIds">): Promise<number[]> {
+  if (item.tnCategoryIds && item.tnCategoryIds.length > 0) return item.tnCategoryIds;
+
+  const categoria = item.categoria?.trim();
+  if (!categoria) return [];
+
+  const pathSegments = categoria.split("/").map((segment) => segment.trim()).filter(Boolean);
+  if (pathSegments.length === 0) return [];
+
+  const tree = await getCategoriasArbol();
+  const directMatch = findCategoryIdInTree(tree, pathSegments);
+  if (directMatch != null) return [directMatch];
+
+  const lastSegment = pathSegments[pathSegments.length - 1];
+  const fallbackMatch = findCategoryIdByName(tree, lastSegment);
+  return fallbackMatch != null ? [fallbackMatch] : [];
+}
+
+export function buildTiendanubeVariantPayload(item: Pick<CatalogoItem, "precioVenta" | "stockActual" | "sku" | "codigoBarras">) {
+  return {
+    price: String(item.precioVenta ?? 0),
+    stock: item.stockActual ?? 0,
+    sku: item.sku ?? null,
+    barcode: item.codigoBarras ?? null,
+  };
+}
+
+export function buildTiendanubeSyncFeedbackMessage({ isEditing, categoryAssigned }: { isEditing: boolean; categoryAssigned: boolean }) {
+  if (categoryAssigned) {
+    return isEditing
+      ? "Cambios guardados correctamente y sincronizados con Tiendanube."
+      : "Producto creado y sincronizado con Tiendanube.";
+  }
+
+  return isEditing
+    ? "Cambios guardados localmente y subidos a Tiendanube, pero la categoría no pudo asignarse."
+    : "Producto creado localmente y subido a Tiendanube, pero la categoría no pudo asignarse.";
+}
+
+async function pushProductoMetadataATiendanube(item: CatalogoItem): Promise<{ categoryAssigned: boolean }> {
+  const creds = getTiendanubeCredentials();
+  if (!creds) return { categoryAssigned: false };
+
+  const target = await resolveTiendanubeProductTarget(creds, item);
+  const tnProductId = target?.productId ?? item.tnProductId;
+  if (!tnProductId) throw new Error(`El producto "${item.nombre}" no está vinculado con Tiendanube.`);
+
+  const metadataBody = buildTiendanubeProductMetadataPayload(item) as ReturnType<typeof buildTiendanubeProductMetadataPayload> & { categories?: number[] };
+  const tnCategoryIds = await resolveTiendanubeCategoryIds(item);
+  if (tnCategoryIds.length > 0) metadataBody.categories = tnCategoryIds;
+
+  const prodRes = await fetch(`${API_BASE}/${creds.userId}/products/${tnProductId}`, {
+    method: "PUT",
+    headers: buildTnHeaders(creds),
+    body: JSON.stringify(metadataBody),
+  });
+  if (!prodRes.ok) {
+    const detail = await getErrorMessageFromResponse(prodRes, prodRes.statusText || "Error actualizando datos del producto");
+    throw new Error(`Error enviando datos del producto a Tiendanube: ${detail}`);
+  }
+
+  const updatedProduct = (await prodRes.json().catch(() => null)) as TNProduct | null;
+  const verifiedProduct = await tnGetOne<TNProduct>(creds, `products/${tnProductId}`);
+  const mismatches = productMetadataMismatchesLocal(item, verifiedProduct, tnCategoryIds);
+  if (mismatches.length > 0) {
+    throw new Error(`Tiendanube respondió OK, pero no confirmó la actualización de: ${mismatches.join(", ")}. Revisa permisos o formato del producto.`);
+  }
+  const categoryAssigned = tnCategoryIds.length > 0;
+
+  await setTnUpdatedAt(tnProductId, verifiedProduct.updated_at ?? updatedProduct?.updated_at ?? null, verifiedProduct.images?.[0]?.src ?? updatedProduct?.images?.[0]?.src ?? null);
+  const finishedAt = new Date().toISOString();
+  localStorage.setItem(SYNC_SINCE_KEY, finishedAt);
+  localStorage.setItem(AUTO_CHECK_SINCE_KEY, finishedAt);
+  localStorage.setItem(SYNC_STATUS_KEY, new Date().toLocaleString());
+  return { categoryAssigned };
+}
+
+export async function enviarDatosLocalesSeleccionadosATiendanube(
+  preview: TiendanubeSyncPreview,
+  selectedIds: string[],
+  onProgress: (msg: string) => void,
+): Promise<{ aplicados: number; errores: number }> {
+  const selected = new Set(selectedIds);
+  const localChanges = preview.cambios.filter((cambio) => selected.has(cambio.id) && ["DATOS", "STOCK", "PRECIO"].includes(cambio.type));
+  if (localChanges.length === 0) throw new Error("Selecciona al menos un cambio de Datos, Stock o Precio para enviar desde el programa hacia Tiendanube.");
+
+  const creds = getTiendanubeCredentials();
+  if (!creds) throw new Error("No hay credenciales activas.");
+  const catalogo = await getCatalogoProductos();
+  const { byProduct, byVariant } = buildLocalIndexes(catalogo);
+
+  let aplicados = 0;
+  let errores = 0;
+  for (const cambio of localChanges) {
+    try {
+      if (cambio.type === "DATOS") {
+        const localItem = byProduct.get(cambio.tnProductId)?.[0];
+        if (!localItem) throw new Error(`No se encontró producto local vinculado a Tiendanube ${cambio.tnProductId}.`);
+        onProgress(`Enviando datos locales de "${localItem.nombre}" a Tiendanube...`);
+        await pushProductoMetadataATiendanube(localItem);
+      } else {
+        if (!cambio.tnVariantId) throw new Error(`El cambio de "${cambio.producto}" no tiene variante vinculada.`);
+        const localItem = byVariant.get(cambio.tnVariantId);
+        if (!localItem) throw new Error(`No se encontró variante local vinculada a Tiendanube ${cambio.tnVariantId}.`);
+        onProgress(`Enviando stock/precio local de "${localItem.nombre}" (${variantDisplay(localItem.variante)}) a Tiendanube...`);
+        await updateVariantPayloadById(creds, cambio.tnProductId, cambio.tnVariantId, buildTiendanubeVariantPayload(localItem), localItem.nombre);
+        await clearPendingLocalEchoChanges(cambio.tnProductId, cambio.tnVariantId, ["STOCK", "PRECIO"]);
+      }
+      await markPendingTiendanubeChange(cambio.queueId, "APLICADO");
+      aplicados++;
+    } catch (error) {
+      console.warn("Error enviando valores locales a Tiendanube", cambio, error);
+      errores++;
+      onProgress(`ERROR en "${cambio.producto}": ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  const finishedAt = new Date().toISOString();
+  localStorage.setItem(SYNC_SINCE_KEY, finishedAt);
+  localStorage.setItem(AUTO_CHECK_SINCE_KEY, finishedAt);
+  localStorage.setItem(SYNC_STATUS_KEY, new Date().toLocaleString());
+  onProgress(`Valores locales enviados a Tiendanube: ${aplicados} cambio/s, ${errores} error/es.`);
+  return { aplicados, errores };
+}
+
+export async function descartarCambiosSeleccionadosTiendanube(
+  preview: TiendanubeSyncPreview,
+  selectedIds: string[],
+  onProgress: (msg: string) => void,
+): Promise<{ descartados: number }> {
+  const selected = new Set(selectedIds);
+  const changes = preview.cambios.filter((cambio) => selected.has(cambio.id));
+  if (changes.length === 0) throw new Error("Selecciona al menos un cambio para descartar.");
+
+  let descartados = 0;
+  for (const cambio of changes) {
+    await markPendingTiendanubeChange(cambio.queueId, "IGNORADO");
+    descartados++;
+    onProgress(`Descartado: ${cambio.producto} (${changeTypeLogLabel(cambio.type)}).`);
+  }
+
+  onProgress(`Cambios descartados: ${descartados}.`);
+  return { descartados };
+}
+
+function changeTypeLogLabel(type: TiendanubeSyncChangeType) {
+  const labels: Record<TiendanubeSyncChangeType, string> = {
+    PRODUCTO_NUEVO: "producto nuevo",
+    VARIANTE_NUEVA: "variante nueva",
+    VENTA_TN: "venta Tiendanube",
+    STOCK: "stock",
+    PRECIO: "precio",
+    DATOS: "datos",
+    IMAGEN: "imagen",
+  };
+  return labels[type];
+}
+export async function pushProductoATiendanube(item: CatalogoItem): Promise<{ categoryAssigned: boolean }> {
+  const creds = getTiendanubeCredentials();
+  if (!creds) return { categoryAssigned: false };
+
+  const productBody = buildTiendanubeProductPayload(item);
+  const existingTarget = await resolveTiendanubeProductTarget(creds, item);
+  const tnProductId = existingTarget?.productId ?? item.tnProductId;
+  const method = tnProductId ? "PUT" : "POST";
+  const prodUrl = tnProductId
+    ? `${API_BASE}/${creds.userId}/products/${tnProductId}`
+    : `${API_BASE}/${creds.userId}/products`;
+
+  const prodRes = await fetch(prodUrl, { method, headers: buildTnHeaders(creds), body: JSON.stringify(productBody) });
+  if (!prodRes.ok) {
+    const detail = await getErrorMessageFromResponse(prodRes, prodRes.statusText || "Error actualizando producto");
+    throw new Error(`Error enviando producto a Tiendanube: ${detail}`);
+  }
+
+  const createdProduct = (await prodRes.json().catch(() => null)) as TNProduct | null;
+  const resolvedProductId = await resolveCreatedProductId(creds, item, createdProduct, prodRes);
+  const targetVariantId = existingTarget?.variantId ?? item.tnVariantId;
+
+  let categoryAssigned = false;
+  const tnCategoryIds = await resolveTiendanubeCategoryIds(item);
+  if (tnCategoryIds.length > 0) {
+    const catUrl = `${API_BASE}/${creds.userId}/products/${resolvedProductId}/categories`;
+    const catBody = { categories: tnCategoryIds };
+    const catRes = await fetch(catUrl, { method: "PUT", headers: buildTnHeaders(creds), body: JSON.stringify(catBody) });
+    if (!catRes.ok) {
+      const detail = await getErrorMessageFromResponse(catRes, catRes.statusText || "Error actualizando categorías");
+      console.warn(`No se pudo asignar la categoría al producto ${item.nombre}: ${detail}`);
+    } else {
+      categoryAssigned = true;
+    }
+  }
+
+  const variantBody = buildTiendanubeVariantPayload(item);
+  const variantUrl = targetVariantId
+    ? `${API_BASE}/${creds.userId}/products/${resolvedProductId}/variants/${targetVariantId}`
+    : `${API_BASE}/${creds.userId}/products/${resolvedProductId}/variants`;
+  const variantMethod = targetVariantId ? "PUT" : "POST";
+  const varRes = await fetch(variantUrl, { method: variantMethod, headers: buildTnHeaders(creds), body: JSON.stringify(variantBody) });
+  if (!varRes.ok) {
+    const detail = await getErrorMessageFromResponse(varRes, varRes.statusText || "Error actualizando variante");
+    throw new Error(`Error enviando variante a Tiendanube: ${detail}`);
+  }
+
+  const createdVariant = (await varRes.json().catch(() => null)) as { id?: number; variant_id?: number } | null;
+  const tnVariantId = createdVariant?.id ?? createdVariant?.variant_id ?? item.tnVariantId;
+
+  if (createdProduct?.updated_at || createdVariant) {
+    await setTnUpdatedAt(resolvedProductId, createdProduct?.updated_at ?? null, createdProduct?.images?.[0]?.src ?? null);
+  }
+
+  if (!item.tnProductId || !item.tnVariantId || item.tnProductId !== resolvedProductId || item.tnVariantId !== tnVariantId) {
+    const catalogo = await getCatalogoProductos();
+    const updatedItem = catalogo.find((c) => c.inventarioId === item.inventarioId) ?? item;
+    if (updatedItem.tnProductId !== resolvedProductId || updatedItem.tnVariantId !== tnVariantId) {
+      await updateLocalLinkAfterCreate(item.inventarioId, resolvedProductId, tnVariantId);
+    }
+  }
+
+  const finishedAt = new Date().toISOString();
+  await clearPendingLocalEchoChanges(resolvedProductId, tnVariantId, ["STOCK", "PRECIO"]);
+  localStorage.setItem(SYNC_SINCE_KEY, finishedAt);
+  localStorage.setItem(AUTO_CHECK_SINCE_KEY, finishedAt);
+  localStorage.setItem(SYNC_STATUS_KEY, new Date().toLocaleString());
+
+  return { categoryAssigned };
+}
+
+async function updateLocalLinkAfterCreate(inventarioId: number, tnProductId: number, tnVariantId: number | null | undefined) {
+  const db = await (await import("@/database/db")).getDatabase();
+  await db.execute(
+    `UPDATE productos SET tn_product_id = $1, actualizado_en = CURRENT_TIMESTAMP WHERE id = (SELECT producto_id FROM inventario WHERE id = $2)`,
+    [tnProductId, inventarioId],
+  );
+  await db.execute(
+    `UPDATE inventario SET tn_variant_id = $1, actualizado_en = CURRENT_TIMESTAMP WHERE id = $2`,
+    [tnVariantId ?? null, inventarioId],
+  );
+}
+
+export async function pushInventarioIdATiendanube(inventarioId: number): Promise<{ categoryAssigned: boolean }> {
+  const catalogo = await getCatalogoProductos();
+  const item = catalogo.find((c) => c.inventarioId === inventarioId);
+  if (item) {
+    return pushProductoATiendanube(item);
+  }
+  return { categoryAssigned: false };
+}
+
+export async function runIncrementalSync(onProgress: (msg: string) => void): Promise<{ procesados: number; errores: number; signature: string }> {
+  const bridge = await fetchTiendanubeWebhookEvents(onProgress);
+  const webhookEvents = bridge.ok ? bridge.events : undefined;
+
+  // Algunos cambios manuales de stock en Tiendanube no disparan webhook de producto
+  // ni actualizan siempre el filtro updated_at_min. Para no perder esos casos, el
+  // chequeo automatico compara el catalogo completo igual que el boton manual.
+  const preview = await revisarCambiosTiendanube(onProgress, { webhookEvents });
+  localStorage.setItem(AUTO_CHECK_SINCE_KEY, preview.fetchedAt);
+  return { procesados: preview.cambios.length, errores: 0, signature: preview.signature || `checked-${preview.fetchedAt}` };
 }

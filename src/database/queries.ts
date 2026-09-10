@@ -1,21 +1,31 @@
 import { getDatabase } from "@/database/db";
 import type {
+  Categoria,
+  CategoriaRef,
+  CategoriaTreeNode,
   CatalogoFilterOptions,
   CatalogoFilters,
   CatalogoItem,
   ConfiguracionEmpresa,
   ConfiguracionEmpresaDraft,
+  Contacto,
+  ContactoDraft,
+  ContactosPage,
   DashboardStats,
   EstadoInventario,
   InventarioMovimientoOption,
   MovimientosFilters,
   MovimientoListado,
+  MovimientoConcepto,
   MovimientoStockDraft,
   MovimientoTemplate,
   MovimientoTemplateDraft,
   ProductoDetalle,
   ProductoDraft,
+  ProductoVarianteResumen,
+  VarianteProductoDraft,
   StockAlert,
+  ResumenMensualMovimientos,
 } from "@/types";
 
 async function getCount(query: string) {
@@ -32,6 +42,40 @@ function normalizeOptionalText(value?: string) {
 interface InventarioStockRow {
   inventarioId: number;
   stockActual: number;
+  precioVenta: number | null;
+  precioCompra: number | null;
+}
+
+const CONCEPTOS_VALIDOS: Record<string, MovimientoConcepto[]> = {
+  ENTRADA: ["COMPRA_REPOSICION", "DEVOLUCION_CLIENTE", "CAMBIO_ENTRADA", "ENTRADA_OTRA"],
+  SALIDA: ["VENTA", "ROTURA", "FALLA", "VENCIMIENTO", "REGALO_SORTEO", "CAMBIO_SALIDA", "CAMBIO_GARANTIA", "DEVOLUCION_PROVEEDOR", "PERDIDA_FALTANTE", "SALIDA_OTRA"],
+  AJUSTE: ["CORRECCION_STOCK", "SINCRONIZACION_TN"],
+};
+
+const MONTHLY_SALES_UPDATED_EVENT = "soft_inventario_ventas_actualizadas";
+
+export { MONTHLY_SALES_UPDATED_EVENT };
+
+export function notifyMonthlySalesUpdate() {
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent(MONTHLY_SALES_UPDATED_EVENT));
+  }
+}
+
+export function sqliteLocalDateTimeExpression(column: string) {
+  return `CASE
+    WHEN ${column} GLOB '*[+-][0-9][0-9][0-9][0-9]'
+    THEN substr(${column}, 1, length(${column}) - 2) || ':' || substr(${column}, length(${column}) - 1, 2)
+    ELSE ${column}
+  END`;
+}
+
+export function sqliteLocalDateExpression(column: string) {
+  return `DATE(${sqliteLocalDateTimeExpression(column)}, 'localtime')`;
+}
+
+export function sqliteLocalMonthExpression(column: string) {
+  return `strftime('%Y-%m', ${sqliteLocalDateTimeExpression(column)}, 'localtime')`;
 }
 
 interface InventarioDeleteCheckRow {
@@ -52,13 +96,18 @@ export async function getDashboardOverview(): Promise<DashboardStats> {
   ] =
     await Promise.all([
       getCount("SELECT COUNT(*) AS total FROM productos"),
-      getCount("SELECT COUNT(*) AS total FROM inventario"),
+      getCount(`SELECT COUNT(*) AS total FROM (
+        SELECT i.producto_id
+        FROM inventario i
+        GROUP BY i.producto_id
+        HAVING COUNT(*) > 1
+      ) AS productos_con_variantes`),
       getCount("SELECT COALESCE(SUM(stock_actual), 0) AS total FROM inventario"),
       getCount(
         "SELECT COUNT(*) AS total FROM inventario WHERE stock_actual <= stock_minimo",
       ),
       getCount(
-        "SELECT COUNT(*) AS total FROM movimientos_stock WHERE DATE(fecha_movimiento) = DATE('now', 'localtime')",
+        `SELECT COUNT(*) AS total FROM movimientos_stock WHERE ${sqliteLocalDateExpression("fecha_movimiento")} = DATE('now', 'localtime')`,
       ),
       getCount(
         "SELECT COALESCE(SUM(stock_actual * precio_compra), 0) AS total FROM inventario",
@@ -120,6 +169,9 @@ export async function getCatalogoFilterOptions(): Promise<CatalogoFilterOptions>
   };
 }
 
+// Tipo temporal para la consulta SQL (incluye tnCategoryIdsRaw que se procesa después)
+type CatalogoItemRow = Omit<CatalogoItem, 'tnCategoryIds'> & { tnCategoryIdsRaw: string | null };
+
 export async function getCatalogoProductos(filters: CatalogoFilters = {}): Promise<CatalogoItem[]> {
   const db = await getDatabase();
   const whereClauses: string[] = [];
@@ -152,9 +204,18 @@ export async function getCatalogoProductos(filters: CatalogoFilters = {}): Promi
     whereClauses.push("COALESCE(i.stock_actual, 0) <= COALESCE(i.stock_minimo, 0)");
   }
 
+  if (filters.soloConVariantes) {
+    whereClauses.push(`p.id IN (
+      SELECT i2.producto_id
+      FROM inventario i2
+      GROUP BY i2.producto_id
+      HAVING COUNT(*) > 1
+    )`);
+  }
+
   const whereSql = whereClauses.length > 0 ? `WHERE ${whereClauses.join(" AND ")}` : "";
 
-  return db.select<CatalogoItem[]>(
+  return db.select<CatalogoItemRow[]>(
     `SELECT
         i.id AS inventarioId,
         p.id AS productoId,
@@ -164,6 +225,14 @@ export async function getCatalogoProductos(filters: CatalogoFilters = {}): Promi
         p.marca AS marca,
         p.notas AS notas,
         p.imagen_path_local AS imagenPathLocal,
+        p.imagen_url AS imagenUrl,
+        p.seo_titulo AS seoTitulo,
+        p.seo_descripcion AS seoDescripcion,
+        p.tags AS tags,
+        COALESCE(p.publicado, 1) AS publicado,
+        p.tn_product_id AS tnProductId,
+        p.tn_updated_at AS tnUpdatedAt,
+        i.tn_variant_id AS tnVariantId,
         i.variante AS variante,
         i.capacidad_medida AS capacidadMedida,
         i.sku AS sku,
@@ -175,13 +244,24 @@ export async function getCatalogoProductos(filters: CatalogoFilters = {}): Promi
         i.ubicacion AS ubicacion,
         i.lote AS lote,
         i.vencimiento AS vencimiento,
-        i.estado AS estado
+        i.estado AS estado,
+        (
+          SELECT GROUP_CONCAT(c.tn_category_id, ',')
+          FROM producto_categorias pc
+          INNER JOIN categorias c ON c.id = pc.categoria_id
+          WHERE pc.producto_id = p.id AND c.tn_category_id IS NOT NULL
+        ) AS tnCategoryIdsRaw
       FROM inventario i
       INNER JOIN productos p ON p.id = i.producto_id
       ${whereSql}
       ORDER BY p.nombre ASC, i.capacidad_medida ASC, i.variante ASC`,
     bindValues,
-  );
+  ).then(rows => rows.map(row => ({
+    ...row,
+    tnCategoryIds: row.tnCategoryIdsRaw
+      ? String(row.tnCategoryIdsRaw).split(',').map(Number).filter(n => !isNaN(n))
+      : []
+  })) as CatalogoItem[]);
 }
 
 export async function getProductoByInventarioId(inventarioId: number): Promise<ProductoDetalle | null> {
@@ -196,6 +276,14 @@ export async function getProductoByInventarioId(inventarioId: number): Promise<P
         p.marca AS marca,
         p.notas AS notas,
         p.imagen_path_local AS imagenPathLocal,
+        p.imagen_url AS imagenUrl,
+        p.seo_titulo AS seoTitulo,
+        p.seo_descripcion AS seoDescripcion,
+        p.tags AS tags,
+        COALESCE(p.publicado, 1) AS publicado,
+        p.tn_product_id AS tnProductId,
+        p.tn_updated_at AS tnUpdatedAt,
+        i.tn_variant_id AS tnVariantId,
         i.variante AS variante,
         i.capacidad_medida AS capacidadMedida,
         i.sku AS sku,
@@ -218,9 +306,75 @@ export async function getProductoByInventarioId(inventarioId: number): Promise<P
   return rows[0] ?? null;
 }
 
+export async function getVariantesByProductoId(productoId: number): Promise<ProductoVarianteResumen[]> {
+  const db = await getDatabase();
+  return db.select<ProductoVarianteResumen[]>(
+    `SELECT
+        id AS inventarioId,
+        variante,
+        capacidad_medida AS capacidadMedida,
+        sku,
+        codigo_barras AS codigoBarras,
+        COALESCE(precio_compra, 0) AS precioCompra,
+        COALESCE(precio_venta, 0) AS precioVenta,
+        COALESCE(stock_actual, 0) AS stockActual,
+        COALESCE(stock_minimo, 0) AS stockMinimo,
+        estado
+      FROM inventario
+      WHERE producto_id = $1
+      ORDER BY capacidad_medida ASC, variante ASC, id ASC`,
+    [productoId],
+  );
+}
+
+export async function getProductoByCodigoBarras(codigoBarras: string): Promise<ProductoDetalle | null> {
+  const codigoNormalizado = codigoBarras.trim();
+  if (!codigoNormalizado) return null;
+
+  const db = await getDatabase();
+  const rows = await db.select<ProductoDetalle[]>(
+    `SELECT
+        i.id AS inventarioId,
+        p.id AS productoId,
+        p.nombre AS nombre,
+        p.descripcion AS descripcion,
+        p.categoria AS categoria,
+        p.marca AS marca,
+        p.notas AS notas,
+        p.imagen_path_local AS imagenPathLocal,
+        p.imagen_url AS imagenUrl,
+        p.seo_titulo AS seoTitulo,
+        p.seo_descripcion AS seoDescripcion,
+        p.tags AS tags,
+        COALESCE(p.publicado, 1) AS publicado,
+        p.tn_product_id AS tnProductId,
+        p.tn_updated_at AS tnUpdatedAt,
+        i.tn_variant_id AS tnVariantId,
+        i.variante AS variante,
+        i.capacidad_medida AS capacidadMedida,
+        i.sku AS sku,
+        i.codigo_barras AS codigoBarras,
+        COALESCE(i.stock_actual, 0) AS stockActual,
+        COALESCE(i.stock_minimo, 0) AS stockMinimo,
+        COALESCE(i.precio_compra, 0) AS precioCompra,
+        COALESCE(i.precio_venta, 0) AS precioVenta,
+        i.ubicacion AS ubicacion,
+        i.lote AS lote,
+        i.vencimiento AS vencimiento,
+        i.estado AS estado
+      FROM inventario i
+      INNER JOIN productos p ON p.id = i.producto_id
+      WHERE TRIM(i.codigo_barras) = $1
+      LIMIT 1`,
+    [codigoNormalizado],
+  );
+
+  return rows[0] ?? null;
+}
+
 export async function getMovimientos(filters: MovimientosFilters = {}): Promise<MovimientoListado[]> {
   const db = await getDatabase();
-  const whereClauses: string[] = [];
+  const whereClauses: string[] = ["m.anulado_en IS NULL"];
   const bindValues: unknown[] = [];
 
   if (filters.inventarioId && Number.isInteger(filters.inventarioId)) {
@@ -243,12 +397,12 @@ export async function getMovimientos(filters: MovimientosFilters = {}): Promise<
 
   if (filters.fechaDesde?.trim()) {
     bindValues.push(filters.fechaDesde.trim());
-    whereClauses.push(`DATE(m.fecha_movimiento) >= DATE($${bindValues.length})`);
+    whereClauses.push(`${sqliteLocalDateExpression("m.fecha_movimiento")} >= DATE($${bindValues.length})`);
   }
 
   if (filters.fechaHasta?.trim()) {
     bindValues.push(filters.fechaHasta.trim());
-    whereClauses.push(`DATE(m.fecha_movimiento) <= DATE($${bindValues.length})`);
+    whereClauses.push(`${sqliteLocalDateExpression("m.fecha_movimiento")} <= DATE($${bindValues.length})`);
   }
 
   const whereSql = whereClauses.length > 0 ? `WHERE ${whereClauses.join(" AND ")}` : "";
@@ -268,16 +422,21 @@ export async function getMovimientos(filters: MovimientosFilters = {}): Promise<
         p.nombre AS producto,
         i.variante AS variante,
         m.tipo_movimiento AS tipoMovimiento,
+        m.concepto AS concepto,
         m.cantidad AS cantidad,
         m.stock_resultante AS stockResultante,
         m.motivo AS motivo,
         m.referencia AS referencia,
+        m.precio_unitario AS precioUnitario,
+        m.costo_unitario AS costoUnitario,
+        m.importe_total AS importeTotal,
+        m.operacion_id AS operacionId,
         m.fecha_movimiento AS fechaMovimiento
       FROM movimientos_stock m
       INNER JOIN inventario i ON i.id = m.inventario_id
       INNER JOIN productos p ON p.id = i.producto_id
       ${whereSql}
-      ORDER BY m.fecha_movimiento DESC
+      ORDER BY m.fecha_movimiento DESC, m.id DESC
       ${paginationSql}`,
     bindValues,
   );
@@ -325,6 +484,8 @@ export async function getInventarioMovimientoOptions(): Promise<InventarioMovimi
         i.sku AS sku,
         i.stock_actual AS stockActual,
         i.stock_minimo AS stockMinimo,
+        i.precio_compra AS precioCompra,
+        i.precio_venta AS precioVenta,
         i.estado AS estado
       FROM inventario i
       INNER JOIN productos p ON p.id = i.producto_id
@@ -335,6 +496,13 @@ export async function getInventarioMovimientoOptions(): Promise<InventarioMovimi
 export async function registrarMovimientoStock(payload: MovimientoStockDraft) {
   const db = await getDatabase();
   const cantidad = Number(payload.cantidad);
+  const concepto: MovimientoConcepto = payload.concepto ?? (
+    payload.tipoMovimiento === "ENTRADA"
+      ? "ENTRADA_OTRA"
+      : payload.tipoMovimiento === "SALIDA"
+        ? (payload.motivo?.toLowerCase().includes("venta") ? "VENTA" : "SALIDA_OTRA")
+        : "CORRECCION_STOCK"
+  );
 
   if (!Number.isInteger(cantidad)) {
     throw new Error("La cantidad debe ser un número entero.");
@@ -346,6 +514,16 @@ export async function registrarMovimientoStock(payload: MovimientoStockDraft) {
 
   if (payload.tipoMovimiento === "AJUSTE" && cantidad === 0) {
     throw new Error("El ajuste no puede ser cero.");
+  }
+
+  if (!CONCEPTOS_VALIDOS[payload.tipoMovimiento]?.includes(concepto)) {
+    throw new Error("El concepto seleccionado no corresponde al tipo de movimiento.");
+  }
+
+  const referencia = payload.referencia?.trim() || null;
+  const esCambio = concepto === "CAMBIO_ENTRADA" || concepto === "CAMBIO_SALIDA";
+  if (esCambio && !referencia) {
+    throw new Error("Los cambios requieren una referencia compartida para vincular la entrada y la salida.");
   }
 
   if (isNaN(cantidad)) {
@@ -360,7 +538,9 @@ export async function registrarMovimientoStock(payload: MovimientoStockDraft) {
     const rows = await db.select<InventarioStockRow[]>(
       `SELECT
           id AS inventarioId,
-          stock_actual AS stockActual
+          stock_actual AS stockActual,
+          precio_venta AS precioVenta,
+          precio_compra AS precioCompra
         FROM inventario
         WHERE id = $1`,
       [payload.inventarioId],
@@ -380,6 +560,18 @@ export async function registrarMovimientoStock(payload: MovimientoStockDraft) {
           : cantidad;
 
     const stockResultante = Number(inventario.stockActual ?? 0) + delta;
+    const precioUnitario = Number(inventario.precioVenta ?? 0);
+    const costoUnitario = payload.costoUnitario === undefined
+      ? Number(inventario.precioCompra ?? 0)
+      : Math.max(0, Number(payload.costoUnitario));
+    if (!Number.isFinite(costoUnitario)) {
+      throw new Error("El costo unitario no es válido.");
+    }
+    const importeSugerido = precioUnitario * Math.abs(cantidad);
+    const importeTotal = concepto === "VENTA" || concepto === "DEVOLUCION_CLIENTE"
+      ? Math.max(0, Number(payload.importeTotal ?? importeSugerido))
+      : 0;
+    const operacionId = esCambio ? referencia?.toUpperCase() ?? null : null;
 
     if (stockResultante < 0) {
       throw new Error(`La salida o ajuste de ${cantidad} dejaría el stock en negativo (Actual: ${inventario.stockActual}).`);
@@ -401,20 +593,34 @@ export async function registrarMovimientoStock(payload: MovimientoStockDraft) {
       `INSERT INTO movimientos_stock (
           inventario_id,
           tipo_movimiento,
+          concepto,
           cantidad,
           stock_resultante,
           motivo,
-          referencia
-        ) VALUES ($1, $2, $3, $4, $5, $6)`,
+          referencia,
+          precio_unitario,
+          costo_unitario,
+          importe_total,
+          operacion_id
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
       [
         payload.inventarioId,
         payload.tipoMovimiento,
+        concepto,
         cantidad,
         stockResultante,
         payload.motivo?.trim() || null,
-        payload.referencia?.trim() || null,
+        referencia,
+        precioUnitario,
+        costoUnitario,
+        importeTotal,
+        operacionId,
       ],
     );
+
+    if (concepto === "VENTA" || concepto === "DEVOLUCION_CLIENTE") {
+      notifyMonthlySalesUpdate();
+    }
 
     // await db.execute("COMMIT");
     return stockResultante;
@@ -424,6 +630,54 @@ export async function registrarMovimientoStock(payload: MovimientoStockDraft) {
     console.error("Error en registrarMovimientoStock:", error);
     throw new Error(msg);
   }
+}
+
+export async function getResumenMensualMovimientos(mes: string): Promise<ResumenMensualMovimientos> {
+  const db = await getDatabase();
+  const rows = await db.select<Array<Omit<ResumenMensualMovimientos, "mes">>>(
+    `SELECT
+      COALESCE(SUM(CASE WHEN concepto = 'VENTA' THEN importe_total ELSE 0 END), 0) AS ventasBrutas,
+      COALESCE(SUM(CASE WHEN concepto = 'DEVOLUCION_CLIENTE' THEN importe_total ELSE 0 END), 0) AS devoluciones,
+      COALESCE(SUM(CASE WHEN concepto = 'VENTA' THEN importe_total WHEN concepto = 'DEVOLUCION_CLIENTE' THEN -importe_total ELSE 0 END), 0) AS ventasNetas,
+      COALESCE(SUM(CASE WHEN concepto = 'VENTA' THEN ABS(cantidad) ELSE 0 END), 0) AS unidadesVendidas,
+      COALESCE(SUM(CASE WHEN concepto = 'COMPRA_REPOSICION' THEN ABS(cantidad) ELSE 0 END), 0) AS comprasUnidades,
+      COALESCE(SUM(CASE WHEN concepto = 'CAMBIO_ENTRADA' THEN ABS(cantidad) ELSE 0 END), 0) AS cambiosEntradas,
+      COALESCE(SUM(CASE WHEN concepto = 'CAMBIO_SALIDA' THEN ABS(cantidad) ELSE 0 END), 0) AS cambiosSalidas,
+      COALESCE(SUM(CASE WHEN concepto = 'CAMBIO_GARANTIA' THEN ABS(cantidad) * costo_unitario ELSE 0 END), 0) AS cambiosGarantiaCosto,
+      COALESCE(SUM(CASE WHEN concepto = 'CAMBIO_GARANTIA' THEN ABS(cantidad) ELSE 0 END), 0) AS cambiosGarantiaUnidades,
+      COALESCE(SUM(CASE WHEN concepto IN ('ROTURA', 'FALLA') THEN ABS(cantidad) * costo_unitario ELSE 0 END), 0) AS roturasFallasCosto,
+      COALESCE(SUM(CASE WHEN concepto IN ('ROTURA', 'FALLA') THEN ABS(cantidad) ELSE 0 END), 0) AS roturasFallasUnidades,
+      COALESCE(SUM(CASE WHEN concepto = 'VENCIMIENTO' THEN ABS(cantidad) * costo_unitario ELSE 0 END), 0) AS vencimientosCosto,
+      COALESCE(SUM(CASE WHEN concepto = 'VENCIMIENTO' THEN ABS(cantidad) ELSE 0 END), 0) AS vencimientosUnidades,
+      COALESCE(SUM(CASE WHEN concepto = 'REGALO_SORTEO' THEN ABS(cantidad) * costo_unitario ELSE 0 END), 0) AS regalosCosto,
+      COALESCE(SUM(CASE WHEN concepto = 'PERDIDA_FALTANTE' THEN ABS(cantidad) * costo_unitario ELSE 0 END), 0) AS perdidasCosto,
+      COALESCE(SUM(CASE WHEN concepto IN ('CORRECCION_STOCK', 'SINCRONIZACION_TN') AND cantidad > 0 THEN cantidad ELSE 0 END), 0) AS ajustesPositivos,
+      COALESCE(SUM(CASE WHEN concepto IN ('CORRECCION_STOCK', 'SINCRONIZACION_TN') AND cantidad < 0 THEN ABS(cantidad) ELSE 0 END), 0) AS ajustesNegativos
+     FROM movimientos_stock
+     WHERE ${sqliteLocalMonthExpression("fecha_movimiento")} = $1`,
+    [mes],
+  );
+  const row = rows[0];
+  return {
+    mes,
+    ventasBrutas: Number(row?.ventasBrutas ?? 0),
+    devoluciones: Number(row?.devoluciones ?? 0),
+    ventasNetas: Number(row?.ventasNetas ?? 0),
+    unidadesVendidas: Number(row?.unidadesVendidas ?? 0),
+    comprasUnidades: Number(row?.comprasUnidades ?? 0),
+    cambiosEntradas: Number(row?.cambiosEntradas ?? 0),
+    cambiosSalidas: Number(row?.cambiosSalidas ?? 0),
+    cambiosGarantiaCosto: Number(row?.cambiosGarantiaCosto ?? 0),
+    cambiosGarantiaUnidades: Number(row?.cambiosGarantiaUnidades ?? 0),
+    roturasFallasCosto: Number(row?.roturasFallasCosto ?? 0),
+    roturasFallasUnidades: Number(row?.roturasFallasUnidades ?? 0),
+    vencimientosCosto: Number(row?.vencimientosCosto ?? 0),
+    vencimientosUnidades: Number(row?.vencimientosUnidades ?? 0),
+    regalosCosto: Number(row?.regalosCosto ?? 0),
+    perdidasCosto: Number(row?.perdidasCosto ?? 0),
+    ajustesPositivos: Number(row?.ajustesPositivos ?? 0),
+    ajustesNegativos: Number(row?.ajustesNegativos ?? 0),
+  };
 }
 
 export async function saveMovimientoTemplate(payload: MovimientoTemplateDraft) {
@@ -520,8 +774,13 @@ export async function updateProducto(inventarioId: number, payload: ProductoDraf
            marca = $4,
            notas = $5,
            imagen_path_local = $6,
+           imagen_url = COALESCE($7, imagen_url),
+           seo_titulo = $8,
+           seo_descripcion = $9,
+           tags = $10,
+           publicado = $11,
            actualizado_en = CURRENT_TIMESTAMP
-       WHERE id = $7`,
+       WHERE id = $12`,
       [
         payload.nombre,
         payload.descripcion || null,
@@ -529,6 +788,11 @@ export async function updateProducto(inventarioId: number, payload: ProductoDraf
         payload.marca || null,
         payload.notas || null,
         payload.imagenPathLocal || null,
+        payload.imagenUrl || null,
+        payload.seoTitulo || null,
+        payload.seoDescripcion || null,
+        payload.tags || null,
+        payload.publicado === false ? 0 : 1,
         inventario.productoId,
       ],
     );
@@ -584,8 +848,13 @@ export async function createProducto(payload: ProductoDraft) {
         marca,
         notas,
         imagen_path_local,
+        imagen_url,
+        seo_titulo,
+        seo_descripcion,
+        tags,
+        publicado,
         actualizado_en
-      ) VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP)`,
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, CURRENT_TIMESTAMP)`,
     [
       payload.nombre,
       payload.descripcion || null,
@@ -593,6 +862,11 @@ export async function createProducto(payload: ProductoDraft) {
       payload.marca || null,
       payload.notas || null,
       payload.imagenPathLocal || null,
+      payload.imagenUrl || null,
+      payload.seoTitulo || null,
+      payload.seoDescripcion || null,
+      payload.tags || null,
+      payload.publicado === false ? 0 : 1,
     ],
   );
 
@@ -641,12 +915,13 @@ export async function createProducto(payload: ProductoDraft) {
       `INSERT INTO movimientos_stock (
           inventario_id,
           tipo_movimiento,
+          concepto,
           cantidad,
           stock_resultante,
           motivo,
           referencia,
           fecha_movimiento
-        ) VALUES ($1, $2, $3, $4, $5, $6, COALESCE($7, CURRENT_TIMESTAMP))`,
+        ) VALUES ($1, $2, 'ENTRADA_OTRA', $3, $4, $5, $6, COALESCE($7, CURRENT_TIMESTAMP))`,
       [
         inventarioResult.lastInsertId,
         "ENTRADA",
@@ -660,6 +935,75 @@ export async function createProducto(payload: ProductoDraft) {
   }
 
   return Number(productoId);
+}
+
+export async function createVarianteProducto(productoId: number, payload: VarianteProductoDraft): Promise<number> {
+  const db = await getDatabase();
+  const producto = await db.select<{ id: number }[]>("SELECT id FROM productos WHERE id = $1 LIMIT 1", [productoId]);
+  if (!producto[0]) throw new Error("El producto al que se agregará la variante no existe.");
+
+  const result = await db.execute(
+    `INSERT INTO inventario (
+      producto_id, variante, capacidad_medida, codigo_barras, sku,
+      precio_compra, precio_venta, stock_actual, stock_minimo,
+      ubicacion, lote, vencimiento, estado, actualizado_en
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, CURRENT_TIMESTAMP)`,
+    [
+      productoId,
+      normalizeOptionalText(payload.variante),
+      normalizeOptionalText(payload.capacidadMedida),
+      normalizeOptionalText(payload.codigoBarras),
+      normalizeOptionalText(payload.sku),
+      payload.precioCompra ?? 0,
+      payload.precioVenta ?? 0,
+      payload.stockInicial ?? 0,
+      payload.stockMinimo ?? 0,
+      normalizeOptionalText(payload.ubicacion),
+      normalizeOptionalText(payload.lote),
+      normalizeOptionalText(payload.vencimiento),
+      payload.estado ?? "ACTIVO",
+    ],
+  );
+  const inventarioId = Number(result.lastInsertId);
+  if (!inventarioId) throw new Error("No se pudo crear la variante.");
+
+  if ((payload.stockInicial ?? 0) > 0) {
+    await db.execute(
+      `INSERT INTO movimientos_stock (
+        inventario_id, tipo_movimiento, concepto, cantidad, stock_resultante,
+        motivo, referencia, fecha_movimiento
+      ) VALUES ($1, 'ENTRADA', 'ENTRADA_OTRA', $2, $2, 'Carga inicial desde formulario', 'ALTA_INICIAL', COALESCE($3, CURRENT_TIMESTAMP))`,
+      [inventarioId, payload.stockInicial ?? 0, payload.fechaIngreso ? `${payload.fechaIngreso} 00:00:00` : null],
+    );
+  }
+
+  return inventarioId;
+}
+
+export async function createProductoConVariantes(
+  payload: ProductoDraft,
+  variantesAdicionales: VarianteProductoDraft[],
+): Promise<{ productoId: number; inventarioIds: number[] }> {
+  const db = await getDatabase();
+  await db.execute("BEGIN");
+  try {
+    const productoId = await createProducto(payload);
+    const principal = await db.select<{ inventarioId: number }[]>(
+      "SELECT id AS inventarioId FROM inventario WHERE producto_id = $1 ORDER BY id ASC LIMIT 1",
+      [productoId],
+    );
+    if (!principal[0]) throw new Error("No se pudo localizar la variante principal recién creada.");
+
+    const inventarioIds = [principal[0].inventarioId];
+    for (const variante of variantesAdicionales) {
+      inventarioIds.push(await createVarianteProducto(productoId, variante));
+    }
+    await db.execute("COMMIT");
+    return { productoId, inventarioIds };
+  } catch (error) {
+    await db.execute("ROLLBACK");
+    throw error;
+  }
 }
 
 export async function updateEstadoInventario(inventarioId: number, estado: EstadoInventario) {
@@ -695,6 +1039,10 @@ export async function deleteInventarioSeguro(inventarioId: number) {
 
   if (!inventario) {
     throw new Error("La variante seleccionada no existe.");
+  }
+
+  if (Number(inventario.totalMovimientos ?? 0) > 0) {
+    throw new Error("La variante tiene historial de movimientos. Usa baja lógica o estado DISCONTINUADO.");
   }
 
   // Transacción eliminada por incompatibilidad con el pool de conexiones del plugin
@@ -791,4 +1139,455 @@ export async function getUniqueMarcas(): Promise<string[]> {
     "SELECT DISTINCT marca AS value FROM productos WHERE marca IS NOT NULL AND TRIM(marca) <> '' ORDER BY marca ASC"
   );
   return rows.map((r) => r.value);
+}
+
+const CONTACTO_SELECT = `SELECT
+    id,
+    nombre,
+    apellidos,
+    empresa,
+    cargo,
+    email,
+    email_alternativo AS emailAlternativo,
+    telefono,
+    telefono_alternativo AS telefonoAlternativo,
+    direccion,
+    ciudad,
+    provincia,
+    codigo_postal AS codigoPostal,
+    pais,
+    sitio_web AS sitioWeb,
+    fecha_nacimiento AS fechaNacimiento,
+    notas,
+    creado_en AS creadoEn,
+    actualizado_en AS actualizadoEn
+  FROM contactos`;
+
+function contactoValues(payload: ContactoDraft) {
+  return [
+    payload.nombre.trim(),
+    normalizeOptionalText(payload.apellidos),
+    normalizeOptionalText(payload.empresa),
+    normalizeOptionalText(payload.cargo),
+    normalizeOptionalText(payload.email),
+    normalizeOptionalText(payload.emailAlternativo),
+    normalizeOptionalText(payload.telefono),
+    normalizeOptionalText(payload.telefonoAlternativo),
+    normalizeOptionalText(payload.direccion),
+    normalizeOptionalText(payload.ciudad),
+    normalizeOptionalText(payload.provincia),
+    normalizeOptionalText(payload.codigoPostal),
+    normalizeOptionalText(payload.pais),
+    normalizeOptionalText(payload.sitioWeb),
+    normalizeOptionalText(payload.fechaNacimiento),
+    normalizeOptionalText(payload.notas),
+  ];
+}
+
+function contactoFilter(search: string) {
+  const term = search.trim();
+  const where = term
+    ? ` WHERE nombre LIKE $1 OR apellidos LIKE $1 OR empresa LIKE $1 OR cargo LIKE $1
+        OR email LIKE $1 OR email_alternativo LIKE $1 OR telefono LIKE $1 OR telefono_alternativo LIKE $1`
+    : "";
+  const values = term ? [`%${term}%`] : [];
+  return { where, values };
+}
+
+export async function getContactos(search = ""): Promise<Contacto[]> {
+  const db = await getDatabase();
+  const { where, values } = contactoFilter(search);
+  return db.select<Contacto[]>(`${CONTACTO_SELECT}${where} ORDER BY nombre COLLATE NOCASE, apellidos COLLATE NOCASE`, values);
+}
+
+export async function getContactosPage(search = "", limit = 100, offset = 0): Promise<ContactosPage> {
+  const db = await getDatabase();
+  const { where, values } = contactoFilter(search);
+  const safeLimit = Math.min(500, Math.max(1, Math.trunc(limit)));
+  const safeOffset = Math.max(0, Math.trunc(offset));
+  const limitPlaceholder = `$${values.length + 1}`;
+  const offsetPlaceholder = `$${values.length + 2}`;
+  const [items, countRows] = await Promise.all([
+    db.select<Contacto[]>(
+      `${CONTACTO_SELECT}${where} ORDER BY nombre COLLATE NOCASE, apellidos COLLATE NOCASE LIMIT ${limitPlaceholder} OFFSET ${offsetPlaceholder}`,
+      [...values, safeLimit, safeOffset],
+    ),
+    db.select<{ total: number }[]>(`SELECT COUNT(*) AS total FROM contactos${where}`, values),
+  ]);
+  return { items, total: Number(countRows[0]?.total ?? 0) };
+}
+
+export async function createContacto(payload: ContactoDraft): Promise<number> {
+  if (!payload.nombre.trim()) throw new Error("El nombre del contacto es obligatorio.");
+  const db = await getDatabase();
+  const result = await db.execute(
+    `INSERT INTO contactos (
+      nombre, apellidos, empresa, cargo, email, email_alternativo, telefono,
+      telefono_alternativo, direccion, ciudad, provincia, codigo_postal, pais,
+      sitio_web, fecha_nacimiento, notas, actualizado_en
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, CURRENT_TIMESTAMP)`,
+    contactoValues(payload),
+  );
+  return Number(result.lastInsertId);
+}
+
+export async function updateContacto(contactoId: number, payload: ContactoDraft): Promise<void> {
+  if (!payload.nombre.trim()) throw new Error("El nombre del contacto es obligatorio.");
+  const db = await getDatabase();
+  await db.execute(
+    `UPDATE contactos SET
+      nombre = $1, apellidos = $2, empresa = $3, cargo = $4, email = $5,
+      email_alternativo = $6, telefono = $7, telefono_alternativo = $8,
+      direccion = $9, ciudad = $10, provincia = $11, codigo_postal = $12,
+      pais = $13, sitio_web = $14, fecha_nacimiento = $15, notas = $16,
+      actualizado_en = CURRENT_TIMESTAMP
+    WHERE id = $17`,
+    [...contactoValues(payload), contactoId],
+  );
+}
+
+export async function deleteContacto(contactoId: number): Promise<void> {
+  const db = await getDatabase();
+  await db.execute("DELETE FROM contactos WHERE id = $1", [contactoId]);
+}
+
+// ===== Sincronización con Tiendanube (cruce por IDs internos) =====
+
+export interface CategoriaUpsert {
+  tnCategoryId: number;
+  nombre: string;
+  tnParentId: number | null;
+}
+
+export interface VarianteUpsert {
+  tnVariantId: number;
+  variante: string | null;
+  capacidadMedida: string | null;
+  sku: string | null;
+  codigoBarras: string | null;
+  precioVenta: number;
+  stock: number;
+}
+
+export interface ProductoUpsert {
+  tnProductId: number;
+  nombre: string;
+  descripcion: string | null;
+  marca: string | null;
+  categoriaNombre: string | null;
+  categoriaLocalIds: number[];
+  imagenUrl: string | null;
+  seoTitulo: string | null;
+  seoDescripcion: string | null;
+  tags: string | null;
+  publicado: boolean;
+  tnUpdatedAt: string | null;
+  variantes: VarianteUpsert[];
+}
+
+export async function upsertCategorias(cats: CategoriaUpsert[]): Promise<Map<number, number>> {
+  const db = await getDatabase();
+  const map = new Map<number, number>();
+  for (const c of cats) {
+    const existing = await db.select<{ id: number }[]>(
+      "SELECT id FROM categorias WHERE tn_category_id = $1 LIMIT 1",
+      [c.tnCategoryId],
+    );
+    if (existing[0]) {
+      await db.execute(
+        `UPDATE categorias SET nombre = $1, tn_parent_id = $2, actualizado_en = CURRENT_TIMESTAMP WHERE id = $3`,
+        [c.nombre, c.tnParentId, existing[0].id],
+      );
+      map.set(c.tnCategoryId, existing[0].id);
+    } else {
+      const res = await db.execute(
+        `INSERT INTO categorias (tn_category_id, nombre, tn_parent_id) VALUES ($1, $2, $3)`,
+        [c.tnCategoryId, c.nombre, c.tnParentId],
+      );
+      map.set(c.tnCategoryId, Number(res.lastInsertId));
+    }
+  }
+  return map;
+}
+
+export async function getCategoriasArbol(): Promise<CategoriaTreeNode[]> {
+  const db = await getDatabase();
+  const rows = await db.select<Categoria[]>(
+    `SELECT id, tn_category_id AS tnCategoryId, nombre, tn_parent_id AS tnParentId
+       FROM categorias ORDER BY nombre ASC`,
+  );
+  const byTnId = new Map<number, CategoriaTreeNode>();
+  const nodes: CategoriaTreeNode[] = rows.map((r) => ({ ...r, hijos: [] }));
+  for (const n of nodes) {
+    if (n.tnCategoryId != null) byTnId.set(n.tnCategoryId, n);
+  }
+  const roots: CategoriaTreeNode[] = [];
+  for (const n of nodes) {
+    if (n.tnParentId != null && byTnId.has(n.tnParentId)) {
+      byTnId.get(n.tnParentId)!.hijos.push(n);
+    } else {
+      roots.push(n);
+    }
+  }
+  return roots;
+}
+
+export async function getProductoCategorias(productoId: number): Promise<CategoriaRef[]> {
+  const db = await getDatabase();
+  return db.select<CategoriaRef[]>(
+    `SELECT c.id AS id, c.tn_category_id AS tnCategoryId, c.nombre AS nombre
+       FROM producto_categorias pc
+       INNER JOIN categorias c ON c.id = pc.categoria_id
+       WHERE pc.producto_id = $1
+       ORDER BY c.nombre ASC`,
+    [productoId],
+  );
+}
+
+export async function getCategoriaByNombre(nombre: string): Promise<Categoria | null> {
+  const db = await getDatabase();
+  const rows = await db.select<Categoria[]>(
+    `SELECT id, tn_category_id AS tnCategoryId, nombre, tn_parent_id AS tnParentId
+       FROM categorias
+       WHERE LOWER(TRIM(nombre)) = LOWER(TRIM($1))
+       LIMIT 1`,
+    [nombre],
+  );
+  return rows[0] ?? null;
+}
+
+export async function setTnUpdatedAt(tnProductId: number, updatedAt: string | null, imagenUrl?: string | null): Promise<void> {
+  const db = await getDatabase();
+  await db.execute(
+    "UPDATE productos SET tn_updated_at = $1, imagen_url = COALESCE($2, imagen_url) WHERE tn_product_id = $3",
+    [updatedAt, imagenUrl || null, tnProductId],
+  );
+}
+
+export async function getTnUpdatedAt(tnProductId: number): Promise<string | null> {
+  const db = await getDatabase();
+  const rows = await db.select<{ tnUpdatedAt: string | null }[]>(
+    "SELECT tn_updated_at AS tnUpdatedAt FROM productos WHERE tn_product_id = $1 LIMIT 1",
+    [tnProductId],
+  );
+  return rows[0]?.tnUpdatedAt ?? null;
+}
+
+export async function aplicarStockDesdeTiendanube(payload: {
+  inventarioId: number;
+  tnProductId: number;
+  tnVariantId: number;
+  stock: number;
+  precioVenta?: number;
+  tipoMovimiento?: "AJUSTE" | "SALIDA";
+  concepto?: "SINCRONIZACION_TN" | "VENTA";
+  motivo?: string;
+  referencia?: string;
+  importeTotal?: number;
+  fechaMovimiento?: string;
+}): Promise<void> {
+  const db = await getDatabase();
+  const tipoMovimiento = payload.tipoMovimiento ?? "AJUSTE";
+  const concepto = payload.concepto ?? "SINCRONIZACION_TN";
+  const syncReference = `TN-P${payload.tnProductId}-V${payload.tnVariantId}`;
+  const referencia = payload.referencia?.trim() || syncReference;
+
+  if (tipoMovimiento === "SALIDA" && concepto === "VENTA") {
+    const existingSale = await db.select<Array<{ total: number }>>(
+      `SELECT COUNT(*) AS total
+         FROM movimientos_stock
+        WHERE inventario_id = $1
+          AND tipo_movimiento = 'SALIDA'
+          AND concepto = 'VENTA'
+          AND (
+            operacion_id = $2
+            OR operacion_id LIKE $2 || ',%'
+            OR operacion_id LIKE '%, ' || $2
+            OR operacion_id LIKE '%, ' || $2 || ',%'
+          )
+          AND anulado_en IS NULL`,
+      [payload.inventarioId, referencia],
+    );
+
+    if (Number(existingSale[0]?.total ?? 0) > 0) {
+      return;
+    }
+  }
+
+  const rows = await db.select<Array<{ stockActual: number; precioCompra: number | null; precioVenta: number | null }>>(
+    "SELECT COALESCE(stock_actual, 0) AS stockActual, precio_compra AS precioCompra, precio_venta AS precioVenta FROM inventario WHERE id = $1 LIMIT 1",
+    [payload.inventarioId],
+  );
+  const current = rows[0];
+  if (!current) throw new Error("No se encontro el inventario local para aplicar el stock de Tiendanube.");
+
+  const previousStock = Number(current.stockActual ?? 0);
+  const nextStock = Number(payload.stock ?? 0);
+  const stockDelta = nextStock - previousStock;
+  const nextPrice = typeof payload.precioVenta === "number" ? payload.precioVenta : Number(current.precioVenta ?? 0);
+  const motivo = payload.motivo?.trim() || `Ajuste por sincronizacion Tiendanube (${previousStock} -> ${nextStock})`;
+  const importeTotal = Math.max(0, Number(payload.importeTotal ?? 0));
+
+  await db.execute(
+    `UPDATE inventario
+       SET stock_actual = $1, precio_venta = $2, actualizado_en = CURRENT_TIMESTAMP
+       WHERE id = $3`,
+    [nextStock, nextPrice, payload.inventarioId],
+  );
+
+  if (stockDelta !== 0) {
+    const fechaMovimiento = payload.fechaMovimiento?.trim() || null;
+    await db.execute(
+      `INSERT INTO movimientos_stock (
+        inventario_id, tipo_movimiento, concepto, cantidad, stock_resultante,
+        motivo, referencia, precio_unitario, costo_unitario, importe_total, operacion_id, fecha_movimiento
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $7, COALESCE($11, CURRENT_TIMESTAMP))`,
+      [
+        payload.inventarioId,
+        tipoMovimiento,
+        concepto,
+        stockDelta,
+        nextStock,
+        motivo,
+        referencia,
+        nextPrice,
+        Number(current.precioCompra ?? 0),
+        importeTotal,
+        fechaMovimiento,
+      ],
+    );
+  }
+}
+
+export async function hasActiveMovimientoStockOperacion(payload: {
+  inventarioId: number;
+  tipoMovimiento: "ENTRADA" | "SALIDA" | "AJUSTE";
+  concepto: MovimientoConcepto;
+  operacionId: string;
+}): Promise<boolean> {
+  const operacionId = payload.operacionId.trim();
+  if (!operacionId) return false;
+
+  const db = await getDatabase();
+  const rows = await db.select<Array<{ total: number }>>(
+    `SELECT COUNT(*) AS total
+       FROM movimientos_stock
+      WHERE inventario_id = $1
+        AND tipo_movimiento = $2
+        AND concepto = $3
+        AND (
+          operacion_id = $4
+          OR operacion_id LIKE $4 || ',%'
+          OR operacion_id LIKE '%, ' || $4
+          OR operacion_id LIKE '%, ' || $4 || ',%'
+        )
+        AND anulado_en IS NULL`,
+    [payload.inventarioId, payload.tipoMovimiento, payload.concepto, operacionId],
+  );
+
+  return Number(rows[0]?.total ?? 0) > 0;
+}
+
+export async function aplicarPrecioDesdeTiendanube(payload: {
+  inventarioId: number;
+  precioVenta: number;
+}): Promise<void> {
+  const db = await getDatabase();
+  await db.execute(
+    `UPDATE inventario
+       SET precio_venta = $1, actualizado_en = CURRENT_TIMESTAMP
+       WHERE id = $2`,
+    [payload.precioVenta, payload.inventarioId],
+  );
+}
+
+export async function upsertProductoDesdeTiendanube(p: ProductoUpsert): Promise<void> {
+  const db = await getDatabase();
+  const existing = await db.select<{ id: number }[]>(
+    "SELECT id FROM productos WHERE tn_product_id = $1 LIMIT 1",
+    [p.tnProductId],
+  );
+
+  let productoId: number;
+  if (existing[0]) {
+    productoId = existing[0].id;
+    await db.execute(
+      `UPDATE productos
+         SET nombre = $1, descripcion = $2, categoria = $3, marca = $4, imagen_url = $5,
+             seo_titulo = $6, seo_descripcion = $7, tags = $8, publicado = $9, tn_updated_at = $10,
+             actualizado_en = CURRENT_TIMESTAMP
+         WHERE id = $11`,
+      [
+        p.nombre, p.descripcion, p.categoriaNombre, p.marca, p.imagenUrl,
+        p.seoTitulo, p.seoDescripcion, p.tags, p.publicado ? 1 : 0, p.tnUpdatedAt, productoId,
+      ],
+    );
+  } else {
+    const res = await db.execute(
+      `INSERT INTO productos (
+          nombre, descripcion, categoria, marca, imagen_url, seo_titulo,
+          seo_descripcion, tags, publicado, tn_product_id, tn_updated_at, actualizado_en
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, CURRENT_TIMESTAMP)`,
+      [
+        p.nombre, p.descripcion, p.categoriaNombre, p.marca, p.imagenUrl, p.seoTitulo,
+        p.seoDescripcion, p.tags, p.publicado ? 1 : 0, p.tnProductId, p.tnUpdatedAt,
+      ],
+    );
+    productoId = Number(res.lastInsertId);
+  }
+
+  await db.execute("DELETE FROM producto_categorias WHERE producto_id = $1", [productoId]);
+  for (const catId of p.categoriaLocalIds) {
+    await db.execute(
+      "INSERT OR IGNORE INTO producto_categorias (producto_id, categoria_id) VALUES ($1, $2)",
+      [productoId, catId],
+    );
+  }
+
+  for (const v of p.variantes) {
+    const ev = await db.select<Array<{ id: number; stockActual: number; precioCompra: number | null }>>(
+      "SELECT id, COALESCE(stock_actual, 0) AS stockActual, precio_compra AS precioCompra FROM inventario WHERE tn_variant_id = $1 LIMIT 1",
+      [v.tnVariantId],
+    );
+    if (ev[0]) {
+      const previousStock = Number(ev[0].stockActual ?? 0);
+      const nextStock = Number(v.stock ?? 0);
+      const stockDelta = nextStock - previousStock;
+      const syncReference = `TN-P${p.tnProductId}-V${v.tnVariantId}`;
+
+      await db.execute(
+        `UPDATE inventario
+           SET variante = $1, capacidad_medida = $2, sku = $3, codigo_barras = $4,
+               precio_venta = $5, stock_actual = $6, actualizado_en = CURRENT_TIMESTAMP
+           WHERE id = $7`,
+        [v.variante, v.capacidadMedida, v.sku, v.codigoBarras, v.precioVenta, nextStock, ev[0].id],
+      );
+
+      if (stockDelta !== 0) {
+        await db.execute(
+          `INSERT INTO movimientos_stock (
+            inventario_id, tipo_movimiento, concepto, cantidad, stock_resultante,
+            motivo, referencia, precio_unitario, costo_unitario, importe_total, operacion_id
+          ) VALUES ($1, 'AJUSTE', 'SINCRONIZACION_TN', $2, $3, $4, $5, $6, $7, 0, $5)`,
+          [
+            ev[0].id,
+            stockDelta,
+            nextStock,
+            `Ajuste automatico por sincronizacion Tiendanube (${previousStock} -> ${nextStock})`,
+            syncReference,
+            v.precioVenta,
+            Number(ev[0].precioCompra ?? 0),
+          ],
+        );
+      }
+    } else {
+      await db.execute(
+        `INSERT INTO inventario (
+            producto_id, variante, capacidad_medida, codigo_barras, sku,
+            precio_venta, stock_actual, estado, tn_variant_id, actualizado_en
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, 'ACTIVO', $8, CURRENT_TIMESTAMP)`,
+        [productoId, v.variante, v.capacidadMedida, v.codigoBarras, v.sku, v.precioVenta, v.stock, v.tnVariantId],
+      );
+    }
+  }
 }

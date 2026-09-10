@@ -1,0 +1,55 @@
+name: Publicar actualización
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  release-windows:
+    permissions:
+      contents: write
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Instalar Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Instalar dependencias
+        run: npm ci
+
+      - name: Compilar, firmar y publicar
+        uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: "Inventario App ${{ github.ref_name }}"
+          releaseBody: |
+            ## Sincronizacion Tiendanube
+            - Se evita que una venta registrada en el programa deje avisos pendientes de stock cuando Tiendanube ya recibio correctamente el descuento.
+            - La revision de sincronizacion descarta automaticamente diferencias viejas de stock o precio si el programa y Tiendanube ya coinciden.
+            - Las ventas reales de Tiendanube y los cambios de datos, imagenes, productos o variantes siguen apareciendo para revision cuando corresponde.
+
+            ## Vista general y registros
+            - Vista general suma el panel Facturacion para cargar Tarjeta y Transferencia manualmente y sumar ventas de Tiendanube por mes.
+            - Las columnas de referencia y notas en tablas largas se recortan visualmente para evitar que rompan la pantalla en notebooks.
+
+            ## Actualizaciones
+            - La ventana flotante de nueva actualizacion usa fondo solido para mejorar la lectura de las notas.
+
+            ## Importante
+            - Esta actualizacion no elimina ni reinicia la base local del cliente.
+            - El instalador mantiene la base actual y solo actualiza los archivos del programa.
+          releaseDraft: false
+          prerelease: false
+          uploadUpdaterJson: true

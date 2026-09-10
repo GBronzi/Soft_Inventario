@@ -1,18 +1,30 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { getDashboardOverview } from "@/database/queries";
+
 import { getDatabase } from "@/database/db";
 import {
   deleteMovimientoTemplate,
+  createContacto,
+  createProductoConVariantes,
+  deleteContacto,
   deleteInventarioSeguro,
   getCatalogoProductos,
   getInventarioMovimientoOptions,
   getMovimientoTemplatesByInventarioId,
   getMovimientos,
   getMovimientosByInventarioId,
+  getProductoByCodigoBarras,
+  getVariantesByProductoId,
+  getResumenMensualMovimientos,
+  getContactos,
+  getContactosPage,
   registrarMovimientoStock,
   saveMovimientoTemplate,
   updateEstadoInventario,
+  updateContacto,
   updateProducto,
+  upsertProductoDesdeTiendanube,
 } from "@/database/queries";
 
 vi.mock("@/database/db", () => ({
@@ -33,7 +45,7 @@ describe("queries de inventario", () => {
   });
 
   it("registra una salida de stock en transacción", async () => {
-    mockDb.select.mockResolvedValueOnce([{ inventarioId: 7, stockActual: 5 }]);
+    mockDb.select.mockResolvedValueOnce([{ inventarioId: 7, stockActual: 5, precioVenta: 100, precioCompra: 50 }]);
     mockDb.execute.mockResolvedValue(undefined);
 
     const result = await registrarMovimientoStock({
@@ -45,18 +57,120 @@ describe("queries de inventario", () => {
     });
 
     expect(result).toBe(3);
-    expect(mockDb.execute).toHaveBeenNthCalledWith(1, "BEGIN IMMEDIATE TRANSACTION");
     expect(mockDb.execute).toHaveBeenNthCalledWith(
-      2,
+      1,
       expect.stringContaining("UPDATE inventario"),
       [3, 7],
     );
     expect(mockDb.execute).toHaveBeenNthCalledWith(
-      3,
+      2,
       expect.stringContaining("INSERT INTO movimientos_stock"),
-      [7, "SALIDA", 2, 3, "Venta mostrador", "VENTA-1"],
+      [7, "SALIDA", "VENTA", 2, 3, "Venta mostrador", "VENTA-1", 100, 50, 200, null],
     );
-    expect(mockDb.execute).toHaveBeenNthCalledWith(4, "COMMIT");
+  });
+
+  it("cuenta como variantes solo los productos que realmente tienen variantes", async () => {
+    mockDb.select
+      .mockResolvedValueOnce([{ total: 8 }])
+      .mockResolvedValueOnce([{ total: 3 }])
+      .mockResolvedValueOnce([{ total: 24 }])
+      .mockResolvedValueOnce([{ total: 1 }])
+      .mockResolvedValueOnce([{ total: 2 }])
+      .mockResolvedValueOnce([{ total: 1250 }]);
+
+    const result = await getDashboardOverview();
+
+    expect(result.totalVariantes).toBe(3);
+    expect(mockDb.select).toHaveBeenNthCalledWith(
+      2,
+      expect.stringContaining("productos_con_variantes"),
+    );
+    expect(mockDb.select).toHaveBeenCalledTimes(6);
+  });
+
+  it("crea varias variantes dentro de un mismo producto", async () => {
+    mockDb.execute
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce({ lastInsertId: 15 })
+      .mockResolvedValueOnce({ lastInsertId: 21 })
+      .mockResolvedValueOnce({ lastInsertId: 22 })
+      .mockResolvedValueOnce(undefined);
+    mockDb.select
+      .mockResolvedValueOnce([{ inventarioId: 21 }])
+      .mockResolvedValueOnce([{ id: 15 }]);
+
+    const result = await createProductoConVariantes({
+      nombre: "Perfume agrupado",
+      variante: "Sellado",
+      capacidadMedida: "100 ml",
+      stockInicial: 0,
+      stockMinimo: 1,
+      estado: "ACTIVO",
+    }, [{
+      variante: "Tester",
+      capacidadMedida: "100 ml",
+      stockInicial: 0,
+      stockMinimo: 1,
+      estado: "ACTIVO",
+    }]);
+
+    expect(result).toEqual({ productoId: 15, inventarioIds: [21, 22] });
+    expect(mockDb.execute).toHaveBeenNthCalledWith(1, "BEGIN");
+    expect(mockDb.execute).toHaveBeenLastCalledWith("COMMIT");
+    expect(mockDb.execute).toHaveBeenCalledWith(
+      expect.stringContaining("INSERT INTO inventario"),
+      expect.arrayContaining([15, "Tester", "100 ml"]),
+    );
+  });
+
+  it("guarda el importe y costo históricos sólo para una venta", async () => {
+    mockDb.select.mockResolvedValueOnce([{ inventarioId: 7, stockActual: 5, precioVenta: 100, precioCompra: 60 }]);
+    mockDb.execute.mockResolvedValue(undefined);
+
+    await registrarMovimientoStock({
+      inventarioId: 7,
+      tipoMovimiento: "SALIDA",
+      cantidad: 2,
+      motivo: "Venta mostrador",
+      referencia: "VENTA-1",
+    });
+
+    expect(mockDb.execute).toHaveBeenNthCalledWith(
+      2,
+      expect.stringContaining("importe_total"),
+      [7, "SALIDA", "VENTA", 2, 3, "Venta mostrador", "VENTA-1", 100, 60, 200, null],
+    );
+  });
+
+  it("resume ventas, devoluciones, bajas, cambios y ajustes por mes", async () => {
+    mockDb.select.mockResolvedValueOnce([{ ventasBrutas: 1000, devoluciones: 200, ventasNetas: 800, unidadesVendidas: 4, comprasUnidades: 10, cambiosEntradas: 1, cambiosSalidas: 1, cambiosGarantiaUnidades: 1, roturasFallasCosto: 50, roturasFallasUnidades: 2, vencimientosCosto: 30, vencimientosUnidades: 3, regalosCosto: 20, perdidasCosto: 40, ajustesPositivos: 2, ajustesNegativos: 1 }]);
+    const summary = await getResumenMensualMovimientos("2026-07");
+    expect(summary).toMatchObject({ mes: "2026-07", ventasNetas: 800, cambiosEntradas: 1, roturasFallasCosto: 50, roturasFallasUnidades: 2, vencimientosUnidades: 3, ajustesNegativos: 1 });
+    expect(mockDb.select).toHaveBeenCalledWith(expect.stringContaining("concepto = 'VENTA'"), ["2026-07"]);
+  });
+
+  it("guarda el costo manual de una baja no comercial", async () => {
+    mockDb.select.mockResolvedValueOnce([{ inventarioId: 7, stockActual: 5, precioVenta: 100, precioCompra: 0 }]);
+    mockDb.execute.mockResolvedValue(undefined);
+
+    await registrarMovimientoStock({
+      inventarioId: 7,
+      tipoMovimiento: "SALIDA",
+      concepto: "FALLA",
+      cantidad: 2,
+      costoUnitario: 45,
+    });
+
+    expect(mockDb.execute).toHaveBeenNthCalledWith(
+      2,
+      expect.stringContaining("INSERT INTO movimientos_stock"),
+      [7, "SALIDA", "FALLA", 2, 3, null, null, 100, 45, 0, null],
+    );
+  });
+
+  it("exige una referencia compartida para vincular cambios", async () => {
+    await expect(registrarMovimientoStock({ inventarioId: 7, tipoMovimiento: "SALIDA", concepto: "CAMBIO_SALIDA", cantidad: 1 })).rejects.toThrow("referencia compartida");
+    expect(mockDb.select).not.toHaveBeenCalled();
   });
 
   it("impide movimientos que dejan stock negativo", async () => {
@@ -68,9 +182,48 @@ describe("queries de inventario", () => {
         tipoMovimiento: "SALIDA",
         cantidad: 2,
       }),
-    ).rejects.toThrow("La salida o ajuste dejaría el stock en negativo.");
+    ).rejects.toThrow("La salida o ajuste de 2 dejaría el stock en negativo");
 
     expect(mockDb.execute).not.toHaveBeenCalled();
+  });
+  it("registra un ajuste cuando Tiendanube cambia el stock de una variante existente", async () => {
+    mockDb.select
+      .mockResolvedValueOnce([{ id: 15 }])
+      .mockResolvedValueOnce([{ id: 7, stockActual: 1, precioCompra: 40 }]);
+    mockDb.execute.mockResolvedValue(undefined);
+
+    await upsertProductoDesdeTiendanube({
+      tnProductId: 100,
+      nombre: "Perfume TN",
+      descripcion: null,
+      marca: null,
+      categoriaNombre: null,
+      categoriaLocalIds: [],
+      imagenUrl: null,
+      seoTitulo: null,
+      seoDescripcion: null,
+      tags: null,
+      publicado: true,
+      tnUpdatedAt: "2026-07-20T10:00:00Z",
+      variantes: [{
+        tnVariantId: 200,
+        variante: "100 ml",
+        capacidadMedida: "100 ml",
+        sku: "SKU-TN",
+        codigoBarras: "7790000000000",
+        precioVenta: 85_000,
+        stock: 5,
+      }],
+    });
+
+    expect(mockDb.execute).toHaveBeenCalledWith(
+      expect.stringContaining("UPDATE inventario"),
+      ["100 ml", "100 ml", "SKU-TN", "7790000000000", 85_000, 5, 7],
+    );
+    expect(mockDb.execute).toHaveBeenCalledWith(
+      expect.stringContaining("SINCRONIZACION_TN"),
+      [7, 4, 5, "Ajuste automatico por sincronizacion Tiendanube (1 -> 5)", "TN-P100-V200", 85_000, 40],
+    );
   });
 
   it("actualiza producto y variante dentro de una transacción", async () => {
@@ -94,18 +247,16 @@ describe("queries de inventario", () => {
       estado: "ACTIVO",
     });
 
-    expect(mockDb.execute).toHaveBeenNthCalledWith(1, "BEGIN IMMEDIATE TRANSACTION");
     expect(mockDb.execute).toHaveBeenNthCalledWith(
-      2,
-      expect.stringContaining("UPDATE productos"),
+      1,
+      expect.stringContaining("imagen_url = COALESCE($7, imagen_url)"),
       expect.arrayContaining(["Perfume Editado", 15]),
     );
     expect(mockDb.execute).toHaveBeenNthCalledWith(
-      3,
+      2,
       expect.stringContaining("UPDATE inventario"),
       expect.arrayContaining(["Tester", "100ml", 8]),
     );
-    expect(mockDb.execute).toHaveBeenNthCalledWith(4, "COMMIT");
   });
 
   it("actualiza estado de inventario", async () => {
@@ -156,6 +307,68 @@ describe("queries de inventario", () => {
     expect(mockDb.select).toHaveBeenCalledWith(
       expect.stringContaining("m.inventario_id AS inventarioId"),
       [4, 25],
+    );
+  });
+
+  it("busca un producto por código de barras exacto", async () => {
+    const producto = { inventarioId: 7, productoId: 2, nombre: "Perfume", codigoBarras: "7791234567890" };
+    mockDb.select.mockResolvedValueOnce([producto]);
+
+    const result = await getProductoByCodigoBarras(" 7791234567890 ");
+
+    expect(result).toEqual(producto);
+    expect(mockDb.select).toHaveBeenCalledWith(
+      expect.stringContaining("WHERE TRIM(i.codigo_barras) = $1"),
+      ["7791234567890"],
+    );
+  });
+
+  it("lista todas las variantes de un mismo producto", async () => {
+    const variantes = [
+      { inventarioId: 7, variante: "100 ml", capacidadMedida: "100 ml", stockActual: 2 },
+      { inventarioId: 8, variante: "Tester", capacidadMedida: "100 ml", stockActual: 1 },
+    ];
+    mockDb.select.mockResolvedValueOnce(variantes);
+
+    await expect(getVariantesByProductoId(3)).resolves.toEqual(variantes);
+    expect(mockDb.select).toHaveBeenCalledWith(
+      expect.stringContaining("WHERE producto_id = $1"),
+      [3],
+    );
+  });
+
+  it("crea, lista, actualiza y elimina contactos locales", async () => {
+    mockDb.execute.mockResolvedValue({ lastInsertId: 12, rowsAffected: 1 });
+    mockDb.select.mockResolvedValueOnce([]);
+    const draft = { nombre: "Ana", apellidos: "Pérez", email: "ana@example.com", telefono: "+56912345678" };
+
+    expect(await createContacto(draft)).toBe(12);
+    await getContactos("Ana");
+    await updateContacto(12, { ...draft, empresa: "Perfumes Sur" });
+    await deleteContacto(12);
+
+    expect(mockDb.select).toHaveBeenCalledWith(expect.stringContaining("FROM contactos WHERE"), ["%Ana%"]);
+    expect(mockDb.execute).toHaveBeenCalledWith(expect.stringContaining("UPDATE contactos SET"), expect.arrayContaining(["Ana", 12]));
+    expect(mockDb.execute).toHaveBeenLastCalledWith("DELETE FROM contactos WHERE id = $1", [12]);
+  });
+
+  it("pagina contactos desde SQLite y devuelve el total", async () => {
+    mockDb.select
+      .mockResolvedValueOnce([{ id: 101, nombre: "Contacto 101" }])
+      .mockResolvedValueOnce([{ total: 60000 }]);
+
+    const result = await getContactosPage("Ana", 100, 200);
+
+    expect(result).toEqual({ items: [{ id: 101, nombre: "Contacto 101" }], total: 60000 });
+    expect(mockDb.select).toHaveBeenNthCalledWith(
+      1,
+      expect.stringContaining("LIMIT $2 OFFSET $3"),
+      ["%Ana%", 100, 200],
+    );
+    expect(mockDb.select).toHaveBeenNthCalledWith(
+      2,
+      expect.stringContaining("SELECT COUNT(*) AS total FROM contactos WHERE"),
+      ["%Ana%"],
     );
   });
 
@@ -290,17 +503,15 @@ describe("queries de inventario", () => {
     const result = await deleteInventarioSeguro(4);
 
     expect(result).toEqual({ inventarioEliminado: true, productoEliminado: true });
-    expect(mockDb.execute).toHaveBeenNthCalledWith(1, "BEGIN IMMEDIATE TRANSACTION");
     expect(mockDb.execute).toHaveBeenNthCalledWith(
-      2,
-      expect.stringContaining("DELETE FROM inventario"),
+      3,
+      "DELETE FROM inventario WHERE id = $1",
       [4],
     );
     expect(mockDb.execute).toHaveBeenNthCalledWith(
-      3,
+      4,
       expect.stringContaining("DELETE FROM productos"),
       [11],
     );
-    expect(mockDb.execute).toHaveBeenNthCalledWith(4, "COMMIT");
   });
 });

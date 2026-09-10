@@ -1,5 +1,5 @@
 import { open } from "@tauri-apps/plugin-dialog";
-import { X, Image as ImageIcon, Plus, Save, ArrowLeft, Package, Info, DollarSign, Calendar, MapPin } from "lucide-react";
+import { X, Image as ImageIcon, Plus, Save, ArrowLeft, Package, Info, DollarSign, Calendar, MapPin, CheckCircle2, AlertCircle, LoaderCircle } from "lucide-react";
 import { FormEvent, useEffect, useState } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { useNavigate, useParams } from "react-router-dom";
@@ -8,8 +8,10 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { createProducto, getProductoByInventarioId, updateProducto, getUniqueVariantes, getUniqueCapacidades, getUniqueMarcas } from "@/database/queries";
-import type { EstadoInventario } from "@/types";
+import { createProductoConVariantes, getProductoByInventarioId, updateProducto, getUniqueCapacidades, getUniqueMarcas, getProductoCategorias, getCategoriasArbol } from "@/database/queries";
+import { buildTiendanubeSyncFeedbackMessage, pushInventarioIdATiendanube } from "@/api/tiendanube";
+import type { CategoriaRef, CategoriaTreeNode, EstadoInventario } from "@/types";
+import { flattenCategoriaTreeOptions } from "@/lib/utils";
 
 const initialForm = {
   nombre: "",
@@ -20,8 +22,13 @@ const initialForm = {
   sku: "",
   codigoBarras: "",
   imagenPathLocal: "",
+  imagenUrl: "",
   descripcion: "",
   notas: "",
+  seoTitulo: "",
+  seoDescripcion: "",
+  tags: "",
+  publicado: true,
   precioCompra: "0",
   precioVenta: "0",
   stockInicial: "0",
@@ -33,35 +40,74 @@ const initialForm = {
   estado: "ACTIVO" as EstadoInventario,
 };
 
+type VariantForm = Pick<typeof initialForm,
+  "variante" | "capacidadMedida" | "sku" | "codigoBarras" | "precioCompra" |
+  "precioVenta" | "stockInicial" | "stockMinimo" | "ubicacion" | "lote" |
+  "vencimiento" | "fechaIngreso" | "estado"
+>;
+
+const createEmptyVariant = (): VariantForm => ({
+  variante: "",
+  capacidadMedida: "",
+  sku: "",
+  codigoBarras: "",
+  precioCompra: "0",
+  precioVenta: "0",
+  stockInicial: "0",
+  stockMinimo: "0",
+  ubicacion: "",
+  lote: "",
+  vencimiento: "",
+  fechaIngreso: "",
+  estado: "ACTIVO",
+});
+
+function normalizeVariant(form: VariantForm) {
+  return {
+    ...form,
+    precioCompra: parseFloat(String(form.precioCompra).replace(",", ".")) || 0,
+    precioVenta: parseFloat(String(form.precioVenta).replace(",", ".")) || 0,
+    stockInicial: parseInt(String(form.stockInicial), 10) || 0,
+    stockMinimo: parseInt(String(form.stockMinimo), 10) || 0,
+  };
+}
+
 const selectClassName =
-  "h-10 w-full rounded-xl border border-border/50 bg-background/50 px-3 py-2 text-sm text-foreground outline-none transition-all focus:ring-2 focus:ring-primary/20 appearance-none";
+  "liquid-select h-10 w-full rounded-xl border border-border/50 bg-background/50 px-3 py-2 text-sm text-foreground outline-none transition-all focus:ring-2 focus:ring-primary/20 appearance-none";
+
+type StatusTone = "success" | "error" | "info";
+
+type StatusState = {
+  tone: StatusTone;
+  message: string;
+} | null;
 
 export function ProductoForm() {
   const navigate = useNavigate();
   const params = useParams();
   const isEditing = Boolean(params.inventarioId);
   const [form, setForm] = useState(initialForm);
-  const [status, setStatus] = useState<string | null>(null);
+  const [status, setStatus] = useState<StatusState>(null);
   const [loading, setLoading] = useState(isEditing);
   const [saving, setSaving] = useState(false);
   const [stockActual, setStockActual] = useState<number | null>(null);
+  const [tnCategorias, setTnCategorias] = useState<CategoriaRef[]>([]);
+  const [categoriaOptions, setCategoriaOptions] = useState<CategoriaTreeNode[]>([]);
   
-  const [variantesOptions, setVariantesOptions] = useState<string[]>([]);
   const [capacidadesOptions, setCapacidadesOptions] = useState<string[]>([]);
   const [marcasOptions, setMarcasOptions] = useState<string[]>([]);
 
   const [isNewMarca, setIsNewMarca] = useState(false);
-  const [isNewVariante, setIsNewVariante] = useState(false);
   const [isNewCapacidad, setIsNewCapacidad] = useState(false);
+  const [extraVariants, setExtraVariants] = useState<VariantForm[]>([]);
 
   useEffect(() => {
     async function fetchOptions() {
       try {
-        const [vOpts, cOpts, mOpts] = await Promise.all([getUniqueVariantes(), getUniqueCapacidades(), getUniqueMarcas()]);
-        const defaultVariantes = ["Sellado", "Abierto", "Tester", "Muestra"];
-        setVariantesOptions(Array.from(new Set([...defaultVariantes, ...vOpts])));
+        const [cOpts, mOpts, categoriasArbol] = await Promise.all([getUniqueCapacidades(), getUniqueMarcas(), getCategoriasArbol()]);
         setCapacidadesOptions(cOpts);
         setMarcasOptions(mOpts);
+        setCategoriaOptions(categoriasArbol);
       } catch (err) {
         console.error("Error fetching options:", err);
       }
@@ -88,8 +134,13 @@ export function ProductoForm() {
             sku: detalle.sku ?? "",
             codigoBarras: detalle.codigoBarras ?? "",
             imagenPathLocal: detalle.imagenPathLocal ?? "",
+            imagenUrl: detalle.imagenUrl ?? "",
             descripcion: detalle.descripcion ?? "",
             notas: detalle.notas ?? "",
+            seoTitulo: detalle.seoTitulo ?? "",
+            seoDescripcion: detalle.seoDescripcion ?? "",
+            tags: detalle.tags ?? "",
+            publicado: detalle.publicado !== 0,
             precioCompra: String(detalle.precioCompra ?? 0),
             precioVenta: String(detalle.precioVenta ?? 0),
             stockInicial: String(detalle.stockActual ?? 0),
@@ -101,9 +152,14 @@ export function ProductoForm() {
             estado: detalle.estado,
           });
           setStockActual(detalle.stockActual ?? 0);
+          try {
+            setTnCategorias(await getProductoCategorias(detalle.productoId));
+          } catch {
+            setTnCategorias([]);
+          }
         }
       } catch (error) {
-        setStatus("Error al cargar producto");
+        setStatus({ tone: "error", message: "Error al cargar producto" });
       } finally {
         setLoading(false);
       }
@@ -126,15 +182,36 @@ export function ProductoForm() {
 
       if (isEditing && params.inventarioId) {
         await updateProducto(Number(params.inventarioId), payload as any);
-        setStatus("Cambios guardados correctamente.");
+        setStatus({ tone: "success", message: "Cambios guardados correctamente." });
+        try {
+          const syncResult = await pushInventarioIdATiendanube(Number(params.inventarioId));
+          setStatus({ tone: "success", message: buildTiendanubeSyncFeedbackMessage({ isEditing, categoryAssigned: syncResult.categoryAssigned }) });
+        } catch (syncErr) {
+          console.warn("No se pudo sincronizar con Tiendanube:", syncErr);
+          setStatus({ tone: "info", message: "Los cambios se guardaron localmente. La sincronización con Tiendanube se reintentará más tarde." });
+        }
       } else {
-        await createProducto(payload as any);
+        const created = await createProductoConVariantes(payload as any, extraVariants.map(normalizeVariant));
         setForm(initialForm);
-        setStatus("Producto registrado con éxito.");
+        setExtraVariants([]);
+        setStatus({ tone: "success", message: `Producto registrado con ${created.inventarioIds.length} variante/s.` });
+        try {
+          const syncResult = await pushInventarioIdATiendanube(created.inventarioIds[0]);
+          const syncMessage = buildTiendanubeSyncFeedbackMessage({ isEditing, categoryAssigned: syncResult.categoryAssigned });
+          setStatus({
+            tone: "success",
+            message: extraVariants.length > 0
+              ? `${syncMessage} Las variantes adicionales quedaron guardadas localmente; la sincronización saliente múltiple no fue modificada.`
+              : syncMessage,
+          });
+        } catch (syncErr) {
+          console.warn("No se pudo sincronizar el producto nuevo con Tiendanube:", syncErr);
+          setStatus({ tone: "error", message: "Producto creado localmente. La sincronización con Tiendanube falló (se reintentará)." });
+        }
       }
     } catch (error: any) {
       const msg = error?.message || (typeof error === 'string' ? error : JSON.stringify(error));
-      setStatus(`Error: ${msg}`);
+      setStatus({ tone: "error", message: `Error: ${msg}` });
     } finally {
       setSaving(false);
     }
@@ -180,6 +257,11 @@ export function ProductoForm() {
                       <X className="size-4" />
                     </Button>
                   </>
+                ) : form.imagenUrl ? (
+                  <>
+                    <img src={form.imagenUrl} alt="Imagen de Tiendanube" className="h-full w-full object-cover transition-transform group-hover:scale-105" />
+                    <span className="absolute left-3 top-3 rounded-full bg-background/85 px-2 py-1 text-[10px] font-black uppercase text-foreground shadow-sm">Tiendanube</span>
+                  </>
                 ) : (
                   <div className="flex flex-col items-center gap-2 text-muted-foreground/40">
                     <Plus className="size-10" />
@@ -198,17 +280,29 @@ export function ProductoForm() {
                   <option value="DISCONTINUADO">Discontinuado</option>
                 </select>
               </div>
+              <div className="space-y-2">
+                <label className="text-[10px] font-bold uppercase text-muted-foreground">Visibilidad en Tiendanube</label>
+                <label className="flex items-center gap-3 cursor-pointer select-none rounded-xl border border-border/50 bg-background/50 px-3 h-10">
+                  <input type="checkbox" checked={form.publicado} onChange={(e) => setForm({ ...form, publicado: e.target.checked })} className="size-4 accent-primary" />
+                  <span className="text-sm font-bold">{form.publicado ? "Visible (publicado)" : "Oculto"}</span>
+                </label>
+              </div>
             </CardContent>
           </Card>
 
-          <Card className="border-none shadow-xl bg-primary text-primary-foreground">
+          <Card className="border-none shadow-xl bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-slate-100">
              <CardContent className="p-6 space-y-4">
                 <div className="space-y-1">
                   <h3 className="font-bold flex items-center gap-2 text-lg"><Save className="size-5" /> Acción Final</h3>
                   <p className="text-xs opacity-80">Asegúrate de revisar el stock inicial antes de guardar.</p>
                 </div>
-                {status && <p className="text-xs font-bold bg-white/10 p-2 rounded-lg">{status}</p>}
-                <Button disabled={saving} type="submit" className="w-full h-12 rounded-2xl bg-white text-primary hover:bg-white/90 font-black shadow-2xl">
+                {status && (
+                  <div className={`flex items-start gap-2 rounded-2xl border px-3 py-2.5 text-sm font-medium ${status.tone === "success" ? "border-emerald-500/30 bg-emerald-500/15 text-emerald-800 dark:bg-emerald-500/20 dark:text-emerald-200" : status.tone === "error" ? "border-red-500/30 bg-red-500/15 text-red-800 dark:bg-red-500/20 dark:text-red-200" : "border-sky-500/30 bg-sky-500/15 text-sky-800 dark:bg-sky-500/20 dark:text-sky-200"}`}>
+                    {status.tone === "success" ? <CheckCircle2 className="mt-0.5 size-4 shrink-0" /> : status.tone === "error" ? <AlertCircle className="mt-0.5 size-4 shrink-0" /> : <LoaderCircle className="mt-0.5 size-4 shrink-0 animate-spin" />}
+                    <span>{status.message}</span>
+                  </div>
+                )}
+                <Button disabled={saving} type="submit" className="product-submit-button w-full h-12 rounded-2xl bg-slate-900 text-white hover:bg-slate-700 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-200 font-black shadow-2xl">
                   {saving ? "Guardando..." : isEditing ? "Actualizar Datos" : "Registrar Producto"}
                 </Button>
              </CardContent>
@@ -253,16 +347,75 @@ export function ProductoForm() {
 
               <div className="space-y-2">
                 <label className="text-[10px] font-bold uppercase text-muted-foreground ml-1">Categoría</label>
-                <select className={selectClassName} value={form.categoria} onChange={(e) => setForm({ ...form, categoria: e.target.value })}>
+                <select
+                  className={selectClassName}
+                  value={(() => {
+                    const options = flattenCategoriaTreeOptions(categoriaOptions);
+                    const exactMatch = options.find((option) => option.value === form.categoria);
+                    if (exactMatch) return exactMatch.value;
+                    const legacyMatch = options.find((option) => option.path[option.path.length - 1]?.toLowerCase() === form.categoria?.toLowerCase());
+                    return legacyMatch?.value ?? "";
+                  })()}
+                  onChange={(e) => setForm({ ...form, categoria: e.target.value })}
+                >
                   <option value="">Seleccione...</option>
-                  <option value="Hombre">Hombre</option>
-                  <option value="Mujer">Mujer</option>
-                  <option value="Unisex">Unisex</option>
-                  <option value="Infantil">Infantil</option>
+                  {flattenCategoriaTreeOptions(categoriaOptions).map((option) => (
+                    <option key={option.id} value={option.value}>{option.label}</option>
+                  ))}
                 </select>
+                <p className="text-[10px] text-muted-foreground">Se usa la misma jerarquía que Tiendanube cuando está disponible.</p>
+                {tnCategorias.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 pt-1">
+                    <span className="text-[9px] font-bold uppercase text-muted-foreground/60 w-full">Categorías de Tiendanube (solo lectura)</span>
+                    {tnCategorias.map((c) => (
+                      <span key={c.id} className="rounded-full bg-primary/10 text-primary text-[10px] font-bold px-2 py-0.5">{c.nombre}</span>
+                    ))}
+                  </div>
+                )}
               </div>
             </CardContent>
           </Card>
+
+          {!isEditing && (
+            <Card className="border-none shadow-xl bg-card/60 backdrop-blur-md">
+              <CardHeader className="flex flex-row items-center justify-between gap-4">
+                <div>
+                  <CardTitle className="text-sm flex items-center gap-2 uppercase tracking-widest opacity-60"><Package className="size-4" /> Variantes adicionales</CardTitle>
+                  <p className="mt-1 text-xs text-muted-foreground">Todas quedarán agrupadas dentro de este mismo producto.</p>
+                </div>
+                <Button type="button" variant="outline" onClick={() => setExtraVariants((current) => [...current, createEmptyVariant()])} className="shrink-0 gap-2 rounded-xl"><Plus className="size-4" /> Agregar variante</Button>
+              </CardHeader>
+              {extraVariants.length > 0 && (
+                <CardContent className="space-y-4">
+                  {extraVariants.map((variant, index) => {
+                    const update = (values: Partial<VariantForm>) => setExtraVariants((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, ...values } : item));
+                    return (
+                      <div key={index} className="rounded-xl border border-border/70 bg-background/40 p-4">
+                        <div className="mb-4 flex items-center justify-between">
+                          <p className="text-sm font-bold">Variante {index + 2}</p>
+                          <Button type="button" variant="ghost" size="icon" onClick={() => setExtraVariants((current) => current.filter((_, itemIndex) => itemIndex !== index))} aria-label={`Eliminar variante ${index + 2}`} title="Eliminar variante"><X className="size-4" /></Button>
+                        </div>
+                        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                          <label className="space-y-1 text-xs"><span className="font-semibold">Tipo</span><Input value={variant.variante} onChange={(e) => update({ variante: e.target.value })} placeholder="Sellado, tester..." /></label>
+                          <label className="space-y-1 text-xs"><span className="font-semibold">Presentación</span><Input value={variant.capacidadMedida} onChange={(e) => update({ capacidadMedida: e.target.value })} placeholder="100 ml" /></label>
+                          <label className="space-y-1 text-xs"><span className="font-semibold">SKU</span><Input value={variant.sku} onChange={(e) => update({ sku: e.target.value })} /></label>
+                          <label className="space-y-1 text-xs"><span className="font-semibold">Código de barras</span><Input value={variant.codigoBarras} onChange={(e) => update({ codigoBarras: e.target.value })} /></label>
+                          <label className="space-y-1 text-xs"><span className="font-semibold">Costo</span><Input type="number" step="0.01" value={variant.precioCompra} onChange={(e) => update({ precioCompra: e.target.value })} /></label>
+                          <label className="space-y-1 text-xs"><span className="font-semibold">Precio de venta</span><Input type="number" step="0.01" value={variant.precioVenta} onChange={(e) => update({ precioVenta: e.target.value })} /></label>
+                          <label className="space-y-1 text-xs"><span className="font-semibold">Stock inicial</span><Input type="number" value={variant.stockInicial} onChange={(e) => update({ stockInicial: e.target.value })} /></label>
+                          <label className="space-y-1 text-xs"><span className="font-semibold">Stock mínimo</span><Input type="number" value={variant.stockMinimo} onChange={(e) => update({ stockMinimo: e.target.value })} /></label>
+                          <label className="space-y-1 text-xs"><span className="font-semibold">Ubicación</span><Input value={variant.ubicacion} onChange={(e) => update({ ubicacion: e.target.value })} /></label>
+                          <label className="space-y-1 text-xs"><span className="font-semibold">Lote</span><Input value={variant.lote} onChange={(e) => update({ lote: e.target.value })} /></label>
+                          <label className="space-y-1 text-xs"><span className="font-semibold">Vencimiento</span><Input type="date" value={variant.vencimiento} onChange={(e) => update({ vencimiento: e.target.value })} /></label>
+                          <label className="space-y-1 text-xs"><span className="font-semibold">Estado</span><select className={selectClassName} value={variant.estado} onChange={(e) => update({ estado: e.target.value as EstadoInventario })}><option value="ACTIVO">Activo</option><option value="PAUSADO">Pausado</option><option value="DISCONTINUADO">Discontinuado</option></select></label>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </CardContent>
+              )}
+            </Card>
+          )}
 
           {/* Bloque 2: Presentación */}
           <Card className="border-none shadow-xl bg-card/60 backdrop-blur-md">
@@ -271,28 +424,18 @@ export function ProductoForm() {
             </CardHeader>
             <CardContent className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
-                <label className="text-[10px] font-bold uppercase text-muted-foreground ml-1">Tipo / Variante</label>
-                {!isNewVariante ? (
-                  <select className={selectClassName} value={variantesOptions.includes(form.variante) ? form.variante : (form.variante ? "__NEW_INIT__" : "")} onChange={(e) => {
-                    if (e.target.value === "__NEW__") { setIsNewVariante(true); setForm({ ...form, variante: "" }); }
-                    else if (e.target.value === "__NEW_INIT__") { setIsNewVariante(true); }
-                    else setForm({ ...form, variante: e.target.value });
-                  }}>
-                    <option value="">Seleccione...</option>
-                    {variantesOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                    {form.variante && !variantesOptions.includes(form.variante) && <option value="__NEW_INIT__">{form.variante}</option>}
-                    <option value="__NEW__" className="font-bold text-primary">+ Nueva Presentación...</option>
-                  </select>
-                ) : (
-                  <div className="flex gap-2">
-                    <Input autoFocus className="rounded-xl" placeholder="Ej: Tester" value={form.variante} onChange={(e) => setForm({ ...form, variante: e.target.value })} />
-                    <Button type="button" variant="ghost" size="icon" onClick={() => { setIsNewVariante(false); setForm({...form, variante: ""}); }}><X className="size-4" /></Button>
-                  </div>
-                )}
+                <label className="text-[10px] font-bold uppercase text-muted-foreground ml-1">Tipo</label>
+                <select className={selectClassName} value={form.variante} onChange={(e) => setForm({ ...form, variante: e.target.value })}>
+                  <option value="">Seleccione...</option>
+                  <option value="Sellado">Sellado</option>
+                  <option value="Abierto">Abierto</option>
+                  <option value="Tester">Tester</option>
+                  <option value="Muestra">Muestra</option>
+                </select>
               </div>
 
               <div className="space-y-2">
-                <label className="text-[10px] font-bold uppercase text-muted-foreground ml-1">Capacidad</label>
+                <label className="text-[10px] font-bold uppercase text-muted-foreground ml-1">Variante</label>
                 {!isNewCapacidad ? (
                   <select className={selectClassName} value={capacidadesOptions.includes(form.capacidadMedida) ? form.capacidadMedida : (form.capacidadMedida ? "__NEW_INIT__" : "")} onChange={(e) => {
                     if (e.target.value === "__NEW__") { setIsNewCapacidad(true); setForm({ ...form, capacidadMedida: "" }); }
@@ -376,6 +519,18 @@ export function ProductoForm() {
               <div className="sm:col-span-2 space-y-2">
                 <label className="text-[10px] font-bold uppercase text-muted-foreground ml-1">Descripción y Notas Internas</label>
                 <Textarea className="rounded-xl bg-background/50 min-h-[100px]" placeholder="Detalles extra sobre el perfume..." value={form.descripcion} onChange={(e) => setForm({ ...form, descripcion: e.target.value })} />
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] font-bold uppercase text-muted-foreground ml-1">Título SEO</label>
+                <Input className="rounded-xl bg-background/50" placeholder="Título para buscadores" value={form.seoTitulo} onChange={(e) => setForm({ ...form, seoTitulo: e.target.value })} />
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] font-bold uppercase text-muted-foreground ml-1">Tags (separados por coma)</label>
+                <Input className="rounded-xl bg-background/50" placeholder="perfume, árabe, masculino" value={form.tags} onChange={(e) => setForm({ ...form, tags: e.target.value })} />
+              </div>
+              <div className="sm:col-span-2 space-y-2">
+                <label className="text-[10px] font-bold uppercase text-muted-foreground ml-1">Descripción SEO</label>
+                <Textarea className="rounded-xl bg-background/50 min-h-[70px]" placeholder="Descripción breve para buscadores..." value={form.seoDescripcion} onChange={(e) => setForm({ ...form, seoDescripcion: e.target.value })} />
               </div>
             </CardContent>
           </Card>

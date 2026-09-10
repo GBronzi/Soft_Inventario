@@ -6,6 +6,12 @@ export interface LicenseStatus {
   message: string;
 }
 
+export interface AuthStatus {
+  configured: boolean;
+  username: string | null;
+  recoveryConfigured?: boolean;
+}
+
 export interface DashboardStats {
   totalProductos: number;
   totalVariantes: number;
@@ -14,6 +20,12 @@ export interface DashboardStats {
   movimientosHoy: number;
   totalInvertido: number;
 }
+
+export type VarianteProductoDraft = Pick<ProductoDraft,
+  | "variante" | "capacidadMedida" | "codigoBarras" | "sku"
+  | "precioCompra" | "precioVenta" | "stockInicial" | "stockMinimo"
+  | "ubicacion" | "lote" | "vencimiento" | "fechaIngreso" | "estado"
+>;
 
 export interface StockAlert {
   inventarioId: number;
@@ -34,6 +46,7 @@ export interface CatalogoFilters {
   marca?: string;
   estado?: string;
   soloBajoStock?: boolean;
+  soloConVariantes?: boolean;
 }
 
 export interface CatalogoFilterOptions {
@@ -52,6 +65,14 @@ export interface CatalogoItem {
   marca: string | null;
   notas: string | null;
   imagenPathLocal: string | null;
+  imagenUrl: string | null;
+  seoTitulo: string | null;
+  seoDescripcion: string | null;
+  tags: string | null;
+  publicado: number;
+  tnProductId: number | null;
+  tnUpdatedAt: string | null;
+  tnVariantId: number | null;
   variante: string | null;
   capacidadMedida: string | null;
   sku: string | null;
@@ -64,9 +85,129 @@ export interface CatalogoItem {
   lote: string | null;
   vencimiento: string | null;
   estado: EstadoInventario;
+  tnCategoryIds: number[];
 }
 
-export interface ProductoDetalle extends CatalogoItem {}
+
+export type MedioPago = "EFECTIVO" | "TRANSFERENCIA" | "TARJETA" | "OTRO";
+
+export interface VentaItemDraft {
+  inventarioId: number;
+  cantidad: number;
+  precioUnitario: number;
+}
+
+export interface VentaDraft {
+  medioPago: MedioPago;
+  nota?: string;
+  items: VentaItemDraft[];
+}
+
+export interface VentaRegistrada {
+  id: number;
+  numero: string;
+  medioPago: MedioPago;
+  total: number;
+  creadaEn: string;
+  inventarioIds: number[];
+}
+
+export interface VentaDetalleListado {
+  ventaId: number;
+  numero: string;
+  fecha: string;
+  producto: string;
+  marca: string | null;
+  variante: string | null;
+  cantidad: number;
+  precioUnitario: number;
+  subtotal: number;
+  medioPago: MedioPago | "TIENDANUBE" | "MOVIMIENTO";
+  origen: VentaRegistroOrigen;
+}
+
+export interface ResumenVentasDia {
+  total: number;
+  unidades: number;
+  operaciones: number;
+  efectivo: number;
+  transferencia: number;
+  tarjeta: number;
+  otro: number;
+  tiendanube: number;
+  movimientos: number;
+  detalles: VentaDetalleListado[];
+}
+
+export type VentaRegistroOrigen = "PROGRAMA" | "TIENDANUBE";
+
+export interface VentaRegistroItem {
+  registroKey: string;
+  origen: VentaRegistroOrigen;
+  fecha: string;
+  numero: string;
+  producto: string;
+  marca: string | null;
+  variante: string | null;
+  cantidad: number;
+  precioUnitario: number;
+  subtotal: number;
+  medioPago: MedioPago | "TIENDANUBE" | "MOVIMIENTO";
+  entradaVenta: string;
+  comentario: string;
+}
+
+export interface VentaAnulableItem extends VentaRegistroItem {
+  inventarioId: number;
+  stockActual: number;
+}
+
+export interface VentaAnuladaResultado {
+  registroKey: string;
+  inventarioId: number;
+  stockResultante: number;
+}
+
+export interface RegistroVentasMensual {
+  mes: string;
+  totalPrograma: number;
+  totalTiendanube: number;
+  totalGeneral: number;
+  totalNacional: number;
+  totalArabes: number;
+  unidadesPrograma: number;
+  unidadesTiendanube: number;
+  unidadesGeneral: number;
+  unidadesNacional: number;
+  unidadesArabes: number;
+  registros: VentaRegistroItem[];
+}
+
+export interface ProductoDetalle extends CatalogoItem {
+  categorias?: CategoriaRef[];
+}
+
+export type ProductoVarianteResumen = Pick<CatalogoItem,
+  | "inventarioId" | "variante" | "capacidadMedida" | "sku" | "codigoBarras"
+  | "precioCompra" | "precioVenta" | "stockActual" | "stockMinimo" | "estado"
+>;
+
+export interface CategoriaRef {
+  id: number;
+  tnCategoryId: number | null;
+  nombre: string;
+}
+
+export interface Categoria {
+  id: number;
+  tnCategoryId: number | null;
+  nombre: string;
+  tnParentId: number | null;
+}
+
+export interface CategoriaTreeNode extends Categoria {
+  hijos: CategoriaTreeNode[];
+}
 
 export interface MovimientoListado {
   id: number;
@@ -74,14 +215,36 @@ export interface MovimientoListado {
   producto: string;
   variante: string | null;
   tipoMovimiento: string;
+  concepto: MovimientoConcepto;
   cantidad: number;
   stockResultante: number | null;
   motivo: string | null;
   referencia: string | null;
+  precioUnitario: number;
+  costoUnitario: number;
+  importeTotal: number;
+  operacionId: string | null;
   fechaMovimiento: string;
 }
 
 export type TipoMovimientoStock = "ENTRADA" | "SALIDA" | "AJUSTE";
+export type MovimientoConcepto =
+  | "COMPRA_REPOSICION"
+  | "DEVOLUCION_CLIENTE"
+  | "CAMBIO_ENTRADA"
+  | "ENTRADA_OTRA"
+  | "VENTA"
+  | "ROTURA"
+  | "FALLA"
+  | "VENCIMIENTO"
+  | "REGALO_SORTEO"
+  | "CAMBIO_SALIDA"
+  | "CAMBIO_GARANTIA"
+  | "DEVOLUCION_PROVEEDOR"
+  | "PERDIDA_FALTANTE"
+  | "SALIDA_OTRA"
+  | "CORRECCION_STOCK"
+  | "SINCRONIZACION_TN";
 
 export interface MovimientosFilters {
   inventarioId?: number;
@@ -101,15 +264,41 @@ export interface InventarioMovimientoOption {
   sku: string | null;
   stockActual: number;
   stockMinimo: number;
+  precioCompra: number;
+  precioVenta: number;
   estado: EstadoInventario;
 }
 
 export interface MovimientoStockDraft {
   inventarioId: number;
   tipoMovimiento: TipoMovimientoStock;
+  concepto?: MovimientoConcepto;
   cantidad: number;
   motivo?: string;
   referencia?: string;
+  importeTotal?: number;
+  costoUnitario?: number;
+}
+
+export interface ResumenMensualMovimientos {
+  mes: string;
+  ventasBrutas: number;
+  devoluciones: number;
+  ventasNetas: number;
+  unidadesVendidas: number;
+  comprasUnidades: number;
+  cambiosEntradas: number;
+  cambiosSalidas: number;
+  cambiosGarantiaCosto: number;
+  cambiosGarantiaUnidades: number;
+  roturasFallasCosto: number;
+  roturasFallasUnidades: number;
+  vencimientosCosto: number;
+  vencimientosUnidades: number;
+  regalosCosto: number;
+  perdidasCosto: number;
+  ajustesPositivos: number;
+  ajustesNegativos: number;
 }
 
 export interface MovimientoTemplate {
@@ -132,6 +321,68 @@ export interface MovimientoTemplateDraft {
   referencia?: string;
 }
 
+export interface GastoDetalle {
+  id: string;
+  concepto: string;
+  valor: number;
+}
+
+export interface GastoRegistro {
+  id: string;
+  nombre: string;
+  fecha: string;
+  descripcion?: string;
+  items: GastoDetalle[];
+  total: number;
+  creadoEn: string;
+}
+
+export interface Contacto {
+  id: number;
+  nombre: string;
+  apellidos: string | null;
+  empresa: string | null;
+  cargo: string | null;
+  email: string | null;
+  emailAlternativo: string | null;
+  telefono: string | null;
+  telefonoAlternativo: string | null;
+  direccion: string | null;
+  ciudad: string | null;
+  provincia: string | null;
+  codigoPostal: string | null;
+  pais: string | null;
+  sitioWeb: string | null;
+  fechaNacimiento: string | null;
+  notas: string | null;
+  creadoEn: string;
+  actualizadoEn: string;
+}
+
+export interface ContactoDraft {
+  nombre: string;
+  apellidos?: string;
+  empresa?: string;
+  cargo?: string;
+  email?: string;
+  emailAlternativo?: string;
+  telefono?: string;
+  telefonoAlternativo?: string;
+  direccion?: string;
+  ciudad?: string;
+  provincia?: string;
+  codigoPostal?: string;
+  pais?: string;
+  sitioWeb?: string;
+  fechaNacimiento?: string;
+  notas?: string;
+}
+
+export interface ContactosPage {
+  items: Contacto[];
+  total: number;
+}
+
 export interface ProductoDraft {
   nombre: string;
   descripcion?: string;
@@ -139,6 +390,11 @@ export interface ProductoDraft {
   marca?: string;
   notas?: string;
   imagenPathLocal?: string;
+  imagenUrl?: string;
+  seoTitulo?: string;
+  seoDescripcion?: string;
+  tags?: string;
+  publicado?: boolean;
   variante?: string;
   capacidadMedida?: string;
   codigoBarras?: string;

@@ -1,4 +1,5 @@
-const https = require('https');
+import https from 'https';
+import crypto from 'crypto';
 
 /**
  * Tiendanube OAuth Bridge
@@ -51,10 +52,14 @@ export default async function handler(req, res) {
     }
 
     const { access_token, user_id } = result;
+    const bridgeToken = crypto
+      .createHmac('sha256', process.env.TIENDANUBE_CLIENT_SECRET)
+      .update(String(user_id))
+      .digest('hex');
 
     // Redirigir a la app de escritorio Soft Inventario via Deep Link
     res.redirect(
-      `soft-inventario://auth?token=${encodeURIComponent(access_token)}&user_id=${encodeURIComponent(user_id)}`
+      `soft-inventario://auth?token=${encodeURIComponent(access_token)}&user_id=${encodeURIComponent(user_id)}&bridge_token=${encodeURIComponent(bridgeToken)}`
     );
   } catch (error) {
     res.status(500).json({ error: error.message });

@@ -110,7 +110,7 @@ export function Onboarding() {
                             Crear Producto <PlusCircle className="size-4" />
                           </Link>
                        </Button>
-                       <Button variant="ghost" className="rounded-2xl h-12 text-white hover:bg-white/10 font-bold border border-white/20">
+                       <Button variant="ghost" className="rounded-2xl h-12 text-primary-foreground hover:bg-white/10 hover:text-primary-foreground font-bold border border-current/20">
                           <Link to="/catalogo">Explorar Catálogo</Link>
                        </Button>
                     </div>
