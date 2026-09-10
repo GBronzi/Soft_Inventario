@@ -301,8 +301,8 @@ export function Movimientos() {
                 <label className="grid gap-1 text-xs font-medium text-muted-foreground"><span>Hasta</span><Input aria-label="Fecha hasta" type="date" value={filters.fechaHasta} onChange={(event) => setFilters({ ...filters, fechaHasta: event.target.value })} /></label>
               </div>
               <div className="overflow-x-auto">
-                <Table>
-                  <TableHeader><TableRow><TableHead className="pl-4">Fecha</TableHead><TableHead>Producto</TableHead><TableHead>Operación</TableHead><TableHead className="text-right">Cantidad</TableHead><TableHead className="text-right">Stock después</TableHead><TableHead className="text-right">Importe / costo</TableHead><TableHead>Referencia / notas</TableHead></TableRow></TableHeader>
+                <Table className="min-w-[1180px]">
+                  <TableHeader><TableRow><TableHead className="pl-4">Fecha</TableHead><TableHead>Producto</TableHead><TableHead>Operación</TableHead><TableHead className="text-right">Cantidad</TableHead><TableHead className="text-right">Stock después</TableHead><TableHead className="text-right">Importe / costo</TableHead><TableHead className="min-w-[360px]">Referencia / notas</TableHead></TableRow></TableHeader>
                   <TableBody>
                     {movimientos.length === 0 ? <TableRow><TableCell colSpan={7} className="h-48 text-center text-muted-foreground">No hay movimientos para los filtros seleccionados.</TableCell></TableRow> : movimientos.map((movement) => {
                       const type = movement.tipoMovimiento as TipoMovimientoStock;
@@ -315,7 +315,7 @@ export function Movimientos() {
                         <TableCell className={`text-right font-black tabular-nums ${quantityTone.className}`}>{formatMovimientoQuantity(movement)}</TableCell>
                         <TableCell className="text-right font-semibold">{movement.stockResultante ?? "—"}</TableCell>
                         <TableCell className="text-right text-sm font-semibold">{movement.importeTotal ? new Intl.NumberFormat("es-AR", { style: "currency", currency: "ARS" }).format(movement.importeTotal) : COST_IMPACT_CONCEPTS.includes(concept) ? new Intl.NumberFormat("es-AR", { style: "currency", currency: "ARS" }).format(Math.abs(movement.cantidad) * Number(movement.costoUnitario ?? 0)) : "—"}</TableCell>
-                        <TableCell><p className="text-xs font-semibold">{movement.referencia || "Sin referencia"}</p><p className="mt-1 max-w-52 truncate text-xs text-muted-foreground">{movement.motivo || "Sin notas"}</p></TableCell>
+                        <TableCell className="min-w-[360px] whitespace-nowrap"><p className="max-w-[360px] truncate text-xs font-semibold" title={movement.referencia || "Sin referencia"}>{movement.referencia || "Sin referencia"}</p><p className="mt-1 max-w-[360px] truncate text-xs text-muted-foreground" title={movement.motivo || "Sin notas"}>{movement.motivo || "Sin notas"}</p></TableCell>
                       </TableRow>;
                     })}
                   </TableBody>

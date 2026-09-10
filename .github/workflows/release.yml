@@ -35,23 +35,21 @@ jobs:
           tagName: ${{ github.ref_name }}
           releaseName: "Inventario App ${{ github.ref_name }}"
           releaseBody: |
-            ## Correccion de fechas Tiendanube
-            - El historial operativo, ventas del dia, registro mensual, anulaciones y resumen mensual ahora reconocen correctamente fechas Tiendanube con zona horaria tipo +0000.
-            - Las ventas #181/#182 y casos similares quedan ubicados por su fecha local real y ya no se ocultan por el filtro de fecha.
-            - El ajuste previo antes de una venta pagada de Tiendanube toma la fecha de la venta asociada para no aparecer separado en el dia de aplicacion.
+            ## Sincronizacion Tiendanube
+            - Se evita que una venta registrada en el programa deje avisos pendientes de stock cuando Tiendanube ya recibio correctamente el descuento.
+            - La revision de sincronizacion descarta automaticamente diferencias viejas de stock o precio si el programa y Tiendanube ya coinciden.
+            - Las ventas reales de Tiendanube y los cambios de datos, imagenes, productos o variantes siguen apareciendo para revision cuando corresponde.
 
-            ## Sincronizacion
-            - Los botones de resolucion ahora muestran textos mas claros: Enviar a programa y Enviar a Tiendanube.
-            - La columna Resolver fue ampliada para evitar textos pisados en el panel de sincronizacion.
+            ## Vista general y registros
+            - Vista general suma el panel Facturacion para cargar Tarjeta y Transferencia manualmente y sumar ventas de Tiendanube por mes.
+            - Las columnas de referencia y notas en tablas largas se recortan visualmente para evitar que rompan la pantalla en notebooks.
 
-            ## Variantes de producto
-            - La ficha del producto incorpora accion para eliminar variantes.
-            - Si la variante tiene historial, se marca como DISCONTINUADO para conservar ventas y kardex.
-            - Se alinearon titulos y columnas de la tabla Variantes del producto.
+            ## Actualizaciones
+            - La ventana flotante de nueva actualizacion usa fondo solido para mejorar la lectura de las notas.
 
             ## Importante
             - Esta actualizacion no elimina ni reinicia la base local del cliente.
-            - Las ventas de Tiendanube que ya existian pero no se veian por formato de fecha pasan a aparecer con los filtros corregidos.
+            - El instalador mantiene la base actual y solo actualiza los archivos del programa.
           releaseDraft: false
           prerelease: false
           uploadUpdaterJson: true

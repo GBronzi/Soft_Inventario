@@ -305,36 +305,28 @@ html.ui-scale-xl .app-page {
 .update-notifier-panel {
   color: hsl(var(--foreground));
   border-color: hsl(var(--border));
-  background:
-    linear-gradient(145deg, hsl(var(--background) / 0.98), hsl(var(--card) / 0.96)),
-    hsl(var(--background));
+  background: hsl(var(--background));
   box-shadow: 0 26px 70px hsl(222 38% 8% / 0.32);
 }
 
 .update-notifier-card {
   color: hsl(var(--foreground));
   border-color: hsl(var(--border));
-  background:
-    linear-gradient(145deg, hsl(var(--card) / 0.98), hsl(var(--background) / 0.92)),
-    hsl(var(--card));
+  background: hsl(var(--card));
 }
 
 .dark .update-notifier-panel,
 .grey .update-notifier-panel {
   color: hsl(var(--foreground));
   border-color: hsl(0 0% 100% / 0.16);
-  background:
-    linear-gradient(145deg, hsl(var(--background) / 0.98), hsl(var(--card) / 0.94)),
-    hsl(var(--background));
+  background: hsl(var(--background));
 }
 
 .dark .update-notifier-card,
 .grey .update-notifier-card {
   color: hsl(var(--foreground));
   border-color: hsl(0 0% 100% / 0.12);
-  background:
-    linear-gradient(145deg, hsl(var(--card) / 0.98), hsl(var(--background) / 0.88)),
-    hsl(var(--card));
+  background: hsl(var(--card));
 }
 
 .liquid-backup-card {

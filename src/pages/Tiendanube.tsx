@@ -466,16 +466,16 @@ export function Tiendanube() {
                             </div>
                           </div>
                           <div className="liquid-table-container overflow-x-auto">
-                            <table className="operational-table w-full table-fixed text-sm">
+                            <table className="operational-table w-full min-w-[1280px] text-sm">
                               <thead className="border-b bg-muted/40 text-left text-xs uppercase text-muted-foreground">
                                 <tr>
                                   <th className="w-12 px-4 py-3">Sel.</th>
-                                  <th className="w-[160px] px-3 py-3">Tipo</th>
-                                  <th className="w-[20%] px-3 py-3">Producto / Variante</th>
+                                  <th className="w-[170px] px-3 py-3">Tipo</th>
+                                  <th className="min-w-[260px] px-3 py-3">Producto / Variante</th>
                                   <th className="w-[105px] px-3 py-3">Local</th>
                                   <th className="w-[115px] px-3 py-3">Tiendanube</th>
-                                  <th className="px-3 py-3">Detalle</th>
-                                  <th className="w-[13%] px-3 py-3">Acción</th>
+                                  <th className="min-w-[360px] px-3 py-3">Detalle</th>
+                                  <th className="min-w-[260px] px-3 py-3">Acción</th>
                                   <th className="w-[178px] px-3 py-3 text-right">Resolver</th>
                                 </tr>
                               </thead>
@@ -484,11 +484,11 @@ export function Tiendanube() {
                                   <tr key={cambio.id} className="align-top hover:bg-muted/20">
                                     <td className="px-4 py-4"><input type="checkbox" checked={selectedChanges.includes(cambio.id)} onChange={(e) => toggleChange(cambio.id, e.target.checked)} className="size-4 accent-primary" /></td>
                                     <td className="px-3 py-4"><Badge variant="outline" className="whitespace-nowrap rounded-md px-2.5 py-1 text-[10px] leading-tight">{changeTypeLabel(cambio.type)}</Badge></td>
-                                    <td className="px-3 py-4"><p className="font-bold break-words leading-snug">{cambio.producto}</p><p className="text-xs text-muted-foreground break-words">{cambio.variante || "Producto completo"}</p></td>
+                                    <td className="min-w-[260px] px-3 py-4"><p className="max-w-[260px] truncate whitespace-nowrap font-bold leading-snug" title={cambio.producto}>{cambio.producto}</p><p className="max-w-[260px] truncate whitespace-nowrap text-xs text-muted-foreground" title={cambio.variante || "Producto completo"}>{cambio.variante || "Producto completo"}</p></td>
                                     <td className="px-3 py-4 text-xs"><p>Stock: {formatStock(cambio.localStock)}</p><p>Precio: {formatMoney(cambio.localPrice)}</p></td>
                                     <td className="px-3 py-4 text-xs"><p>Stock: {formatStock(cambio.remoteStock)}</p><p>Precio: {formatMoney(cambio.remotePrice)}</p></td>
-                                    <td className="px-3 py-4 whitespace-normal break-words text-xs text-muted-foreground">{cambio.detalle}</td>
-                                    <td className="px-3 py-4 whitespace-normal break-words text-xs font-semibold">{cambio.accion}</td>
+                                    <td className="min-w-[360px] px-3 py-4 whitespace-nowrap text-xs text-muted-foreground"><p className="max-w-[360px] truncate" title={cambio.detalle}>{cambio.detalle}</p></td>
+                                    <td className="min-w-[260px] px-3 py-4 whitespace-nowrap text-xs font-semibold"><p className="max-w-[260px] truncate" title={cambio.accion}>{cambio.accion}</p></td>
                                     <td className="px-3 py-4">
                                       <div className="flex flex-col items-stretch gap-1.5">
                                         <Button type="button" size="xs" onClick={() => void handleApplySelected([cambio.id])} disabled={isApplying} className="h-7 justify-center gap-1.5 px-2 text-[10px] leading-none whitespace-nowrap">

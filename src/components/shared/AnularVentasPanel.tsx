@@ -112,11 +112,11 @@ export function AnularVentasPanel({ open, onClose, onCancelled, formatCurrency }
         {status && <div className="rounded-lg border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">{status}</div>}
 
         <div className="overflow-x-auto rounded-xl border">
-          <Table className="min-w-[1160px]">
+          <Table className="min-w-[1320px]">
             <TableHeader className="bg-muted/30">
               <TableRow>
                 <TableHead>Fecha</TableHead>
-                <TableHead>Origen</TableHead>
+                <TableHead className="min-w-[260px]">Origen</TableHead>
                 <TableHead>Producto</TableHead>
                 <TableHead className="text-right">Cant.</TableHead>
                 <TableHead className="text-right">Stock actual</TableHead>
@@ -133,7 +133,7 @@ export function AnularVentasPanel({ open, onClose, onCancelled, formatCurrency }
               ) : items.map((item) => (
                 <TableRow key={item.registroKey} className="align-top">
                   <TableCell className="whitespace-nowrap text-xs"><p className="font-semibold">{formatDatabaseDate(item.fecha)}</p><p className="text-muted-foreground">{formatDatabaseTime(item.fecha)}</p></TableCell>
-                  <TableCell><Badge variant="outline" className={item.origen === "PROGRAMA" ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-700" : "border-sky-500/30 bg-sky-500/10 text-sky-700"}>{item.origen === "PROGRAMA" ? "Programa" : "Tiendanube"}</Badge><p className="mt-1 max-w-48 truncate text-xs text-muted-foreground" title={item.entradaVenta}>{item.entradaVenta}</p></TableCell>
+                  <TableCell className="min-w-[260px]"><Badge variant="outline" className={item.origen === "PROGRAMA" ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-700" : "border-sky-500/30 bg-sky-500/10 text-sky-700"}>{item.origen === "PROGRAMA" ? "Programa" : "Tiendanube"}</Badge><p className="mt-1 max-w-[260px] truncate whitespace-nowrap text-xs text-muted-foreground" title={item.entradaVenta}>{item.entradaVenta}</p></TableCell>
                   <TableCell><p className="font-semibold">{item.producto}</p><p className="text-xs text-muted-foreground">{item.variante || "Presentacion principal"} · {item.numero}</p></TableCell>
                   <TableCell className="text-right font-bold">{item.cantidad} u.</TableCell>
                   <TableCell className="text-right font-bold">{item.stockActual} u.</TableCell>

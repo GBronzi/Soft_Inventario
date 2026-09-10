@@ -27,9 +27,21 @@ const { mockAplicarPrecioDesdeTiendanube, mockAplicarStockDesdeTiendanube, mockG
         }
       }
       if (query.includes("UPDATE tiendanube_cambios_pendientes")) {
-        const id = Number(params?.[1] ?? 0);
-        const row = pendingQueue.find((item) => item.id === id);
-        if (row) row.estado = String(params?.[0] ?? row.estado);
+        if (query.includes("tn_product_id = $1") && query.includes("tn_variant_id = $2")) {
+          const tnProductId = Number(params?.[0] ?? 0);
+          const tnVariantId = Number(params?.[1] ?? 0);
+          const types = new Set((params ?? []).slice(2).map(String));
+          for (const row of pendingQueue) {
+            const payload = JSON.parse(row.payloadJson);
+            if (payload.tnProductId === tnProductId && payload.tnVariantId === tnVariantId && types.has(payload.type)) {
+              row.estado = "IGNORADO";
+            }
+          }
+        } else {
+          const id = Number(params?.[1] ?? 0);
+          const row = pendingQueue.find((item) => item.id === id);
+          if (row) row.estado = String(params?.[0] ?? row.estado);
+        }
       }
       return { rowsAffected: 1 };
     }),
@@ -583,6 +595,38 @@ describe("revisarCambiosTiendanube", () => {
 
     await expect(aplicarCambiosSeleccionadosTiendanube(secondPreview, [secondPreview.cambios[1].id], () => undefined))
       .rejects.toThrow("cambios anteriores pendientes");
+  });
+
+  it("oculta diferencias de stock pendientes cuando Tiendanube ya coincide con el programa", async () => {
+    localStorage.setItem("tiendanube_credentials", JSON.stringify({ accessToken: "token", userId: "123" }));
+    const productWithStock = (stock: number) => ({
+      id: 10,
+      name: { es: "Perfume" },
+      description: { es: "" },
+      variants: [{ id: 20, product_id: 10, price: "100", stock, sku: "SKU-1", barcode: null, values: [{ es: "100 ml" }] }],
+    });
+    const localItem = (stockActual: number) => [{ inventarioId: 7, productoId: 1, nombre: "Perfume", descripcion: "", categoria: null, marca: null, notas: null, imagenPathLocal: null, imagenUrl: null, seoTitulo: null, seoDescripcion: null, tags: null, publicado: 1, tnProductId: 10, tnUpdatedAt: "2026-07-24T10:00:00Z", tnVariantId: 20, variante: "100 ml", capacidadMedida: "100 ml", sku: "SKU-1", codigoBarras: null, stockActual, stockMinimo: 0, precioCompra: 0, precioVenta: 100, ubicacion: null, lote: null, vencimiento: null, estado: "ACTIVO", tnCategoryIds: [] }];
+    mockFetch
+      .mockResolvedValueOnce({ ok: true, status: 200, statusText: "OK", json: async () => [] })
+      .mockResolvedValueOnce({ ok: true, status: 200, statusText: "OK", json: async () => [] })
+      .mockResolvedValueOnce({ ok: true, status: 200, statusText: "OK", json: async () => [productWithStock(6)] })
+      .mockResolvedValueOnce({ ok: true, status: 200, statusText: "OK", json: async () => [] })
+      .mockResolvedValueOnce({ ok: true, status: 200, statusText: "OK", json: async () => [] })
+      .mockResolvedValueOnce({ ok: true, status: 200, statusText: "OK", json: async () => [] })
+      .mockResolvedValueOnce({ ok: true, status: 200, statusText: "OK", json: async () => [productWithStock(4)] })
+      .mockResolvedValueOnce({ ok: true, status: 200, statusText: "OK", json: async () => [] });
+    mockUpsertCategorias.mockResolvedValue(new Map());
+    mockGetCatalogoProductos
+      .mockResolvedValueOnce(localItem(4))
+      .mockResolvedValueOnce(localItem(4));
+
+    const firstPreview = await revisarCambiosTiendanube(() => undefined);
+    const secondPreview = await revisarCambiosTiendanube(() => undefined);
+
+    expect(firstPreview.cambios).toHaveLength(1);
+    expect(firstPreview.cambios[0]).toMatchObject({ type: "STOCK", localStock: 4, remoteStock: 6 });
+    expect(secondPreview.cambios).toHaveLength(0);
+    expect(pendingQueue[0].estado).toBe("IGNORADO");
   });
 
   it("la revision automatica compara catalogo completo para detectar stock manual sin webhook", async () => {

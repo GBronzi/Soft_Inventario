@@ -4,6 +4,29 @@ export interface ReleaseNoteSection {
 }
 
 const RELEASE_NOTES: Record<string, ReleaseNoteSection[]> = {
+  "1.2.9": [
+    {
+      title: "Sincronizacion Tiendanube",
+      items: [
+        "Se evita que una venta registrada en el programa deje avisos pendientes de stock cuando Tiendanube ya recibio correctamente el descuento.",
+        "La revision de sincronizacion descarta automaticamente diferencias viejas de stock o precio si el programa y Tiendanube ya coinciden.",
+        "Las ventas reales de Tiendanube y los cambios de datos, imagenes, productos o variantes siguen apareciendo para revision cuando corresponde.",
+      ],
+    },
+    {
+      title: "Vista general y registros",
+      items: [
+        "Vista general suma el panel Facturacion para cargar Tarjeta y Transferencia manualmente y sumar ventas de Tiendanube por mes.",
+        "Las columnas de referencia y notas en tablas largas se recortan visualmente para evitar que rompan la pantalla en notebooks.",
+      ],
+    },
+    {
+      title: "Actualizaciones",
+      items: [
+        "La ventana flotante de nueva actualizacion usa fondo solido para mejorar la lectura de las notas.",
+      ],
+    },
+  ],
   "1.2.3": [
     {
       title: "Sincronizacion Tiendanube",

@@ -1,11 +1,12 @@
 import { invoke } from "@tauri-apps/api/core";
-import { ArrowDownToLine, ArrowRightLeft, Boxes, ClipboardList, History, PackagePlus, PackageSearch, ReceiptText, RotateCcw, ShoppingCart, TriangleAlert, Wallet } from "lucide-react";
+import { ArrowDownToLine, ArrowRightLeft, Boxes, Calculator, ClipboardList, History, PackagePlus, PackageSearch, ReceiptText, RotateCcw, ShoppingCart, TriangleAlert, Wallet } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { AlertaStockList } from "@/components/shared/AlertaStockList";
 import { AnularVentasPanel } from "@/components/shared/AnularVentasPanel";
 import { EscanerBluetoothPanel } from "@/components/shared/EscanerBluetoothPanel";
+import { FacturacionPanel } from "@/components/shared/FacturacionPanel";
 import { RegistroVentasPanel } from "@/components/shared/RegistroVentasPanel";
 import { ResumenCard } from "@/components/shared/ResumenCard";
 import { VentasDiaCard } from "@/components/shared/VentasDiaCard";
@@ -77,6 +78,7 @@ export function Dashboard() {
   const [showTodaySales, setShowTodaySales] = useState(false);
   const [showSalesRegistry, setShowSalesRegistry] = useState(false);
   const [showCancelSales, setShowCancelSales] = useState(false);
+  const [showBilling, setShowBilling] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
   const todayDateParam = getTodayDateParam();
 
@@ -181,6 +183,7 @@ export function Dashboard() {
           <Button variant="ghost" className="liquid-action-button px-5" onPointerMove={updateLiquidGlassPointer} onClick={() => navigate(buildMovimientosRoute())} type="button"><ArrowRightLeft className="mr-2 size-4" />Registrar movimiento</Button>
           <Button variant="ghost" className="liquid-action-button px-5" onPointerMove={updateLiquidGlassPointer} onClick={() => navigate(buildMovimientosRoute({ presetTipoMovimiento: "SALIDA" }))} type="button"><ArrowDownToLine className="mr-2 size-4" />Registrar salida</Button>
           <Button variant="ghost" className="liquid-action-button px-5" onPointerMove={updateLiquidGlassPointer} onClick={() => setShowSalesRegistry((current) => !current)} type="button"><ReceiptText className="mr-2 size-4" />Registro de ventas</Button>
+          <Button variant="ghost" className="liquid-action-button px-5" onPointerMove={updateLiquidGlassPointer} onClick={() => setShowBilling((current) => !current)} type="button"><Calculator className="mr-2 size-4" />Facturación</Button>
           <Button variant="ghost" className="liquid-action-button px-5" onPointerMove={updateLiquidGlassPointer} onClick={() => setShowCancelSales((current) => !current)} type="button"><RotateCcw className="mr-2 size-4" />Anular venta</Button>
         </CardContent>
       </Card>
@@ -195,6 +198,12 @@ export function Dashboard() {
       <RegistroVentasPanel
         open={showSalesRegistry}
         onClose={() => setShowSalesRegistry(false)}
+        formatCurrency={(value) => currencyFormatter.format(value)}
+      />
+
+      <FacturacionPanel
+        open={showBilling}
+        onClose={() => setShowBilling(false)}
         formatCurrency={(value) => currencyFormatter.format(value)}
       />
 

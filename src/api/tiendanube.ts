@@ -249,6 +249,7 @@ export async function syncStockWithTiendanube(onProgress: (msg: string) => void)
     try {
       onProgress(`Sincronizando "${item.nombre}"...`);
       await updateVariantById(creds, item.tnProductId!, item.tnVariantId!, item.stockActual, item.nombre);
+      await clearPendingLocalEchoChanges(item.tnProductId, item.tnVariantId, ["STOCK"]);
       sincronizados++;
     } catch (e) {
       console.warn("Fallo sincronizando", item.nombre, e);
@@ -821,9 +822,53 @@ async function getQueueDatabase() {
   return (await import("@/database/db")).getDatabase();
 }
 
-async function syncPendingChangeQueue(cambios: TiendanubeSyncChange[], productos: ProductoUpsert[]) {
+async function clearPendingLocalEchoChanges(
+  tnProductId: number | null | undefined,
+  tnVariantId: number | null | undefined,
+  types: TiendanubeSyncChangeType[] = ["STOCK", "PRECIO"],
+) {
+  if (!tnProductId || !tnVariantId || types.length === 0) return;
+  const db = await getQueueDatabase();
+  const placeholders = types.map((_, index) => `$${index + 3}`).join(", ");
+  await db.execute(
+    `UPDATE tiendanube_cambios_pendientes
+     SET estado = 'IGNORADO', aplicado_en = CURRENT_TIMESTAMP
+     WHERE estado = 'PENDIENTE'
+       AND tn_product_id = $1
+       AND tn_variant_id = $2
+       AND type IN (${placeholders})`,
+    [tnProductId, tnVariantId, ...types],
+  );
+}
+
+function findRemoteVariant(productos: Map<number, ProductoUpsert>, tnProductId: number, tnVariantId: number | null | undefined) {
+  if (!tnVariantId) return null;
+  return productos.get(tnProductId)?.variantes.find((variante) => variante.tnVariantId === tnVariantId) ?? null;
+}
+
+function isStaleLocalEchoChange(
+  cambio: TiendanubeSyncChange,
+  catalogoByVariant: Map<number, CatalogoItem>,
+  productById: Map<number, ProductoUpsert>,
+) {
+  if (cambio.type !== "STOCK" && cambio.type !== "PRECIO") return false;
+  if (!cambio.tnVariantId) return false;
+
+  const localVariant = catalogoByVariant.get(cambio.tnVariantId);
+  const remoteVariant = findRemoteVariant(productById, cambio.tnProductId, cambio.tnVariantId);
+  if (!localVariant || !remoteVariant) return false;
+
+  if (cambio.type === "STOCK") {
+    return Number(localVariant.stockActual ?? 0) === Number(remoteVariant.stock ?? 0);
+  }
+
+  return moneyValue(localVariant.precioVenta) === moneyValue(remoteVariant.precioVenta);
+}
+
+async function syncPendingChangeQueue(cambios: TiendanubeSyncChange[], productos: ProductoUpsert[], catalogo: CatalogoItem[]) {
   const db = await getQueueDatabase();
   const productById = new Map(productos.map((producto) => [producto.tnProductId, producto]));
+  const catalogoByVariant = buildLocalIndexes(catalogo).byVariant;
 
   for (const cambio of cambios) {
     const productPayload = productById.get(cambio.tnProductId) ?? null;
@@ -858,6 +903,10 @@ async function syncPendingChangeQueue(cambios: TiendanubeSyncChange[], productos
   for (const row of rows) {
     try {
       const change = JSON.parse(row.payloadJson) as TiendanubeSyncChange;
+      if (isStaleLocalEchoChange(change, catalogoByVariant, productById)) {
+        await markPendingTiendanubeChange(row.id, "IGNORADO");
+        continue;
+      }
       const productSnapshot = row.productPayloadJson ? JSON.parse(row.productPayloadJson) as ProductoUpsert : null;
       queuedChanges.push({
         ...change,
@@ -1095,7 +1144,7 @@ export async function revisarCambiosTiendanube(
     }
   }
 
-  const pending = await syncPendingChangeQueue(cambios, productos);
+  const pending = await syncPendingChangeQueue(cambios, productos, catalogo);
 
   return {
     cambios: pending.cambios,
@@ -1437,6 +1486,7 @@ export async function enviarDatosLocalesSeleccionadosATiendanube(
         if (!localItem) throw new Error(`No se encontró variante local vinculada a Tiendanube ${cambio.tnVariantId}.`);
         onProgress(`Enviando stock/precio local de "${localItem.nombre}" (${variantDisplay(localItem.variante)}) a Tiendanube...`);
         await updateVariantPayloadById(creds, cambio.tnProductId, cambio.tnVariantId, buildTiendanubeVariantPayload(localItem), localItem.nombre);
+        await clearPendingLocalEchoChanges(cambio.tnProductId, cambio.tnVariantId, ["STOCK", "PRECIO"]);
       }
       await markPendingTiendanubeChange(cambio.queueId, "APLICADO");
       aplicados++;
@@ -1550,6 +1600,7 @@ export async function pushProductoATiendanube(item: CatalogoItem): Promise<{ cat
   }
 
   const finishedAt = new Date().toISOString();
+  await clearPendingLocalEchoChanges(resolvedProductId, tnVariantId, ["STOCK", "PRECIO"]);
   localStorage.setItem(SYNC_SINCE_KEY, finishedAt);
   localStorage.setItem(AUTO_CHECK_SINCE_KEY, finishedAt);
   localStorage.setItem(SYNC_STATUS_KEY, new Date().toLocaleString());

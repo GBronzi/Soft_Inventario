@@ -492,10 +492,10 @@ export function ProductoDetalle() {
                               {formatMovimientoQuantity(m)}
                            </TableCell>
                            <TableCell className="font-medium">{m.stockResultante}</TableCell>
-                           <TableCell>
-                              <div className="max-w-[150px]">
-                                <p className="text-xs font-bold line-clamp-1">{m.motivo || "-"}</p>
-                                <p className="text-[9px] opacity-40 truncate uppercase">{m.referencia || "S/Ref"}</p>
+                           <TableCell className="min-w-[300px] whitespace-nowrap">
+                              <div>
+                                <p className="max-w-[300px] truncate text-xs font-bold" title={m.motivo || "-"}>{m.motivo || "-"}</p>
+                                <p className="max-w-[300px] truncate text-[9px] uppercase opacity-40" title={m.referencia || "S/Ref"}>{m.referencia || "S/Ref"}</p>
                               </div>
                            </TableCell>
                            <TableCell className="whitespace-nowrap">
