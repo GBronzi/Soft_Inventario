@@ -45,7 +45,7 @@ export async function registrarVenta(payload: VentaDraft): Promise<VentaRegistra
     for (const [inventarioId, item] of agrupados) {
       const rows = await db.select<Array<{ stockActual: number; costoUnitario: number }>>(
         `SELECT stock_actual AS stockActual, precio_compra AS costoUnitario
-         FROM inventario WHERE id = $1 AND estado = 'ACTIVO'`,
+         FROM inventario WHERE id = $1 AND estado = 'ACTIVO' AND retirado_catalogo = 0`,
         [inventarioId],
       );
       const inventario = rows[0];

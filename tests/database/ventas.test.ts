@@ -4,7 +4,10 @@ import { getDatabase } from "@/database/db";
 import { anularVentaRegistro, getRegistroVentasMensual, getResumenVentasDia, getVentasAnulablesMensual, guardarComentarioRegistroVenta, registrarVenta } from "@/database/ventas";
 
 vi.mock("@/database/db", () => ({ getDatabase: vi.fn() }));
-vi.mock("@/database/queries", () => ({ notifyMonthlySalesUpdate: vi.fn() }));
+vi.mock("@/database/queries", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/database/queries")>(),
+  notifyMonthlySalesUpdate: vi.fn(),
+}));
 
 const mockDb = { select: vi.fn(), execute: vi.fn() };
 
@@ -46,6 +49,21 @@ describe("ventas múltiples", () => {
       items: [{ inventarioId: 7, cantidad: 2, precioUnitario: 100 }],
     })).rejects.toThrow("Stock insuficiente");
 
+    expect(mockDb.execute).not.toHaveBeenCalled();
+  });
+
+  it("rechaza una variante retirada aunque permanezca en una venta abierta", async () => {
+    mockDb.select.mockResolvedValueOnce([]);
+
+    await expect(registrarVenta({
+      medioPago: "EFECTIVO",
+      items: [{ inventarioId: 7, cantidad: 1, precioUnitario: 100 }],
+    })).rejects.toThrow("ya no esta disponible");
+
+    expect(mockDb.select).toHaveBeenCalledWith(
+      expect.stringContaining("estado = 'ACTIVO' AND retirado_catalogo = 0"),
+      [7],
+    );
     expect(mockDb.execute).not.toHaveBeenCalled();
   });
 

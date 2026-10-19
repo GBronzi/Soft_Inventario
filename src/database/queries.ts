@@ -83,6 +83,8 @@ interface InventarioDeleteCheckRow {
   productoId: number;
   stockActual: number;
   totalMovimientos: number;
+  totalVentas: number;
+  tnVariantId: number | null;
 }
 
 export async function getDashboardOverview(): Promise<DashboardStats> {
@@ -95,22 +97,23 @@ export async function getDashboardOverview(): Promise<DashboardStats> {
     totalInvertido,
   ] =
     await Promise.all([
-      getCount("SELECT COUNT(*) AS total FROM productos"),
+      getCount("SELECT COUNT(*) AS total FROM productos p WHERE EXISTS (SELECT 1 FROM inventario i WHERE i.producto_id = p.id AND i.retirado_catalogo = 0)"),
       getCount(`SELECT COUNT(*) AS total FROM (
         SELECT i.producto_id
         FROM inventario i
+        WHERE i.retirado_catalogo = 0
         GROUP BY i.producto_id
         HAVING COUNT(*) > 1
       ) AS productos_con_variantes`),
-      getCount("SELECT COALESCE(SUM(stock_actual), 0) AS total FROM inventario"),
+      getCount("SELECT COALESCE(SUM(stock_actual), 0) AS total FROM inventario WHERE retirado_catalogo = 0"),
       getCount(
-        "SELECT COUNT(*) AS total FROM inventario WHERE stock_actual <= stock_minimo",
+        "SELECT COUNT(*) AS total FROM inventario WHERE retirado_catalogo = 0 AND stock_actual <= stock_minimo",
       ),
       getCount(
         `SELECT COUNT(*) AS total FROM movimientos_stock WHERE ${sqliteLocalDateExpression("fecha_movimiento")} = DATE('now', 'localtime')`,
       ),
       getCount(
-        "SELECT COALESCE(SUM(stock_actual * precio_compra), 0) AS total FROM inventario",
+        "SELECT COALESCE(SUM(stock_actual * precio_compra), 0) AS total FROM inventario WHERE retirado_catalogo = 0",
       ),
     ]);
 
@@ -140,7 +143,7 @@ export async function getLowStockAlerts(limit = 6): Promise<StockAlert[]> {
         i.stock_minimo AS stockMinimo
       FROM inventario i
       INNER JOIN productos p ON p.id = i.producto_id
-      WHERE i.stock_actual <= i.stock_minimo
+      WHERE i.retirado_catalogo = 0 AND i.stock_actual <= i.stock_minimo
       ORDER BY i.stock_actual ASC, p.nombre ASC
       LIMIT $1`,
     [limit],
@@ -177,6 +180,8 @@ export async function getCatalogoProductos(filters: CatalogoFilters = {}): Promi
   const whereClauses: string[] = [];
   const bindValues: unknown[] = [];
 
+  if (!filters.incluirRetirados) whereClauses.push("i.retirado_catalogo = 0");
+
   if (filters.search?.trim()) {
     bindValues.push(`%${filters.search.trim()}%`);
     const index = bindValues.length;
@@ -208,6 +213,7 @@ export async function getCatalogoProductos(filters: CatalogoFilters = {}): Promi
     whereClauses.push(`p.id IN (
       SELECT i2.producto_id
       FROM inventario i2
+      WHERE i2.retirado_catalogo = 0
       GROUP BY i2.producto_id
       HAVING COUNT(*) > 1
     )`);
@@ -245,6 +251,7 @@ export async function getCatalogoProductos(filters: CatalogoFilters = {}): Promi
         i.lote AS lote,
         i.vencimiento AS vencimiento,
         i.estado AS estado,
+        i.retirado_catalogo AS retiradoCatalogo,
         (
           SELECT GROUP_CONCAT(c.tn_category_id, ',')
           FROM producto_categorias pc
@@ -295,7 +302,8 @@ export async function getProductoByInventarioId(inventarioId: number): Promise<P
         i.ubicacion AS ubicacion,
         i.lote AS lote,
         i.vencimiento AS vencimiento,
-        i.estado AS estado
+        i.estado AS estado,
+        i.retirado_catalogo AS retiradoCatalogo
       FROM inventario i
       INNER JOIN productos p ON p.id = i.producto_id
       WHERE i.id = $1
@@ -321,7 +329,7 @@ export async function getVariantesByProductoId(productoId: number): Promise<Prod
         COALESCE(stock_minimo, 0) AS stockMinimo,
         estado
       FROM inventario
-      WHERE producto_id = $1
+      WHERE producto_id = $1 AND retirado_catalogo = 0
       ORDER BY capacidad_medida ASC, variante ASC, id ASC`,
     [productoId],
   );
@@ -364,7 +372,7 @@ export async function getProductoByCodigoBarras(codigoBarras: string): Promise<P
         i.estado AS estado
       FROM inventario i
       INNER JOIN productos p ON p.id = i.producto_id
-      WHERE TRIM(i.codigo_barras) = $1
+      WHERE TRIM(i.codigo_barras) = $1 AND i.retirado_catalogo = 0
       LIMIT 1`,
     [codigoNormalizado],
   );
@@ -489,6 +497,7 @@ export async function getInventarioMovimientoOptions(): Promise<InventarioMovimi
         i.estado AS estado
       FROM inventario i
       INNER JOIN productos p ON p.id = i.producto_id
+      WHERE i.retirado_catalogo = 0
       ORDER BY p.nombre ASC, i.capacidad_medida ASC, i.variante ASC`,
   );
 }
@@ -542,7 +551,7 @@ export async function registrarMovimientoStock(payload: MovimientoStockDraft) {
           precio_venta AS precioVenta,
           precio_compra AS precioCompra
         FROM inventario
-        WHERE id = $1`,
+        WHERE id = $1 AND retirado_catalogo = 0`,
       [payload.inventarioId],
     );
 
@@ -1024,11 +1033,17 @@ export async function deleteInventarioSeguro(inventarioId: number) {
         i.id AS inventarioId,
         i.producto_id AS productoId,
         COALESCE(i.stock_actual, 0) AS stockActual,
+        i.tn_variant_id AS tnVariantId,
         (
           SELECT COUNT(*)
           FROM movimientos_stock m
           WHERE m.inventario_id = i.id
-        ) AS totalMovimientos
+        ) AS totalMovimientos,
+        (
+          SELECT COUNT(*)
+          FROM venta_detalle vd
+          WHERE vd.inventario_id = i.id
+        ) AS totalVentas
       FROM inventario i
       WHERE i.id = $1
       LIMIT 1`,
@@ -1041,8 +1056,14 @@ export async function deleteInventarioSeguro(inventarioId: number) {
     throw new Error("La variante seleccionada no existe.");
   }
 
-  if (Number(inventario.totalMovimientos ?? 0) > 0) {
-    throw new Error("La variante tiene historial de movimientos. Usa baja lógica o estado DISCONTINUADO.");
+  if (Number(inventario.totalMovimientos ?? 0) > 0 || Number(inventario.totalVentas ?? 0) > 0 || inventario.tnVariantId != null) {
+    await db.execute(
+      `UPDATE inventario
+       SET retirado_catalogo = 1, estado = 'DISCONTINUADO', actualizado_en = CURRENT_TIMESTAMP
+       WHERE id = $1`,
+      [inventarioId],
+    );
+    return { inventarioEliminado: false, productoEliminado: false, retiradoCatalogo: true };
   }
 
   // Transacción eliminada por incompatibilidad con el pool de conexiones del plugin
@@ -1071,6 +1092,7 @@ export async function deleteInventarioSeguro(inventarioId: number) {
     return {
       inventarioEliminado: true,
       productoEliminado,
+      retiradoCatalogo: false,
     };
   } catch (error: any) {
     const msg = error?.message || (typeof error === 'string' ? error : JSON.stringify(error));

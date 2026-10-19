@@ -279,9 +279,19 @@ describe("queries de inventario", () => {
     });
 
     expect(mockDb.select).toHaveBeenCalledWith(
-      expect.stringContaining("WHERE i.estado = $1 AND COALESCE(i.stock_actual, 0) <= COALESCE(i.stock_minimo, 0)"),
+      expect.stringContaining("WHERE i.retirado_catalogo = 0 AND i.estado = $1 AND COALESCE(i.stock_actual, 0) <= COALESCE(i.stock_minimo, 0)"),
       ["ACTIVO"],
     );
+  });
+
+  it("permite incluir variantes retiradas solo para conciliacion de Tiendanube", async () => {
+    mockDb.select.mockResolvedValue([]);
+
+    await getCatalogoProductos();
+    await getCatalogoProductos({ incluirRetirados: true });
+
+    expect(mockDb.select.mock.calls[0][0]).toContain("WHERE i.retirado_catalogo = 0");
+    expect(mockDb.select.mock.calls[1][0]).not.toContain("WHERE i.retirado_catalogo = 0");
   });
 
   it("obtiene el kardex filtrado por variante", async () => {
@@ -436,7 +446,7 @@ describe("queries de inventario", () => {
     });
 
     expect(mockDb.select).toHaveBeenCalledWith(
-      expect.stringContaining("WHERE m.inventario_id = $1 AND m.tipo_movimiento = $2 AND DATE(m.fecha_movimiento) >= DATE($3) AND DATE(m.fecha_movimiento) <= DATE($4)"),
+      expect.stringMatching(/WHERE m\.anulado_en IS NULL AND m\.inventario_id = \$1 AND m\.tipo_movimiento = \$2 AND DATE\(CASE[\s\S]+?, 'localtime'\) >= DATE\(\$3\) AND DATE\(CASE[\s\S]+?, 'localtime'\) <= DATE\(\$4\)/),
       [12, "SALIDA", "2026-03-01", "2026-03-31", 100],
     );
   });
@@ -480,29 +490,39 @@ describe("queries de inventario", () => {
     );
   });
 
-  it("no elimina una variante con historial", async () => {
+  it("retira del catálogo una variante con historial sin borrar sus movimientos", async () => {
     mockDb.select.mockResolvedValueOnce([
-      { inventarioId: 4, productoId: 11, stockActual: 0, totalMovimientos: 1 },
+      { inventarioId: 4, productoId: 11, stockActual: 0, totalMovimientos: 1, totalVentas: 0, tnVariantId: 20 },
     ]);
 
-    await expect(deleteInventarioSeguro(4)).rejects.toThrow(
-      "La variante tiene historial de movimientos. Usa baja lógica o estado DISCONTINUADO.",
-    );
+    await expect(deleteInventarioSeguro(4)).resolves.toEqual({ inventarioEliminado: false, productoEliminado: false, retiradoCatalogo: true });
 
-    expect(mockDb.execute).not.toHaveBeenCalled();
+    expect(mockDb.execute).toHaveBeenCalledExactlyOnceWith(
+      expect.stringContaining("SET retirado_catalogo = 1, estado = 'DISCONTINUADO'"),
+      [4],
+    );
+  });
+
+  it("retira una variante vinculada a Tiendanube aun sin movimientos para conservar el vínculo", async () => {
+    mockDb.select.mockResolvedValueOnce([
+      { inventarioId: 4, productoId: 11, stockActual: 0, totalMovimientos: 0, totalVentas: 0, tnVariantId: 20 },
+    ]);
+
+    await expect(deleteInventarioSeguro(4)).resolves.toMatchObject({ retiradoCatalogo: true });
+    expect(mockDb.execute).not.toHaveBeenCalledWith(expect.stringContaining("DELETE FROM inventario"), expect.anything());
   });
 
   it("elimina una variante segura y también el producto si queda vacío", async () => {
     mockDb.select
       .mockResolvedValueOnce([
-        { inventarioId: 4, productoId: 11, stockActual: 0, totalMovimientos: 0 },
+        { inventarioId: 4, productoId: 11, stockActual: 0, totalMovimientos: 0, totalVentas: 0, tnVariantId: null },
       ])
       .mockResolvedValueOnce([{ total: 0 }]);
     mockDb.execute.mockResolvedValue(undefined);
 
     const result = await deleteInventarioSeguro(4);
 
-    expect(result).toEqual({ inventarioEliminado: true, productoEliminado: true });
+    expect(result).toEqual({ inventarioEliminado: true, productoEliminado: true, retiradoCatalogo: false });
     expect(mockDb.execute).toHaveBeenNthCalledWith(
       3,
       "DELETE FROM inventario WHERE id = $1",

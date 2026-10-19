@@ -32,6 +32,7 @@ CREATE TABLE IF NOT EXISTS inventario (
     lote TEXT,
     vencimiento DATETIME,
     estado TEXT NOT NULL DEFAULT 'ACTIVO',
+    retirado_catalogo INTEGER NOT NULL DEFAULT 0,
     tn_variant_id INTEGER,
     creado_en DATETIME DEFAULT CURRENT_TIMESTAMP,
     actualizado_en DATETIME DEFAULT CURRENT_TIMESTAMP,

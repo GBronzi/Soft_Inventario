@@ -36,7 +36,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { deleteInventarioSeguro, getMovimientosByInventarioId, getProductoByInventarioId, getProductoCategorias, getVariantesByProductoId, updateEstadoInventario } from "@/database/queries";
+import { deleteInventarioSeguro, getMovimientosByInventarioId, getProductoByInventarioId, getProductoCategorias, getVariantesByProductoId } from "@/database/queries";
 import { formatDatabaseDate, formatDatabaseTime } from "@/lib/datetime";
 import { buildMovimientosRoute, buildRepeatMovimientoRoute, buildVentaRapidaRoute, formatMovimientoQuantity, getMovimientoQuantityTone } from "@/lib/movimientos";
 import type { CategoriaRef, MovimientoListado, ProductoDetalle as ProductoDetalleType, ProductoVarianteResumen } from "@/types";
@@ -160,10 +160,7 @@ export function ProductoDetalle() {
   const handleDeleteVariant = async (variante: ProductoVarianteResumen) => {
     if (!detalle || deletingVariantId) return;
     const label = getVariantLabel(variante);
-    const isLastVariant = variantes.length <= 1;
-    const message = isLastVariant
-      ? `Esta es la última variante de "${detalle.nombre}". Si no tiene movimientos, se eliminará el producto completo. Si tiene historial, se marcará como discontinuado para conservar los registros. ¿Deseas continuar?`
-      : `¿Deseas eliminar la variante "${label}"? Si tiene historial de movimientos, no se borrará físicamente: se marcará como discontinuada para conservar el kardex.`;
+    const message = `¿Eliminar "${label}" del catálogo? Si tiene historial o está vinculada a Tiendanube, sus registros se conservarán y dejará de aparecer en el catálogo.`;
 
     if (!window.confirm(message)) return;
 
@@ -179,25 +176,17 @@ export function ProductoDetalle() {
 
       const nextVariants = await getVariantesByProductoId(detalle.productoId);
       setVariantes(nextVariants);
-      setStatus(`Variante "${label}" eliminada.`);
+      setStatus(result.retiradoCatalogo
+        ? `Variante "${label}" retirada del catálogo. Su historial se conserva.`
+        : `Variante "${label}" eliminada.`);
 
       if (variante.inventarioId === detalle.inventarioId) {
         const nextSelected = nextVariants.find((item) => item.inventarioId !== variante.inventarioId) ?? nextVariants[0];
-        if (nextSelected) navigate(`/producto/${nextSelected.inventarioId}`);
+        navigate(nextSelected ? `/producto/${nextSelected.inventarioId}` : "/catalogo");
       }
     } catch (error) {
       const messageText = error instanceof Error ? error.message : String(error);
-      if (messageText.toLowerCase().includes("historial")) {
-        await updateEstadoInventario(variante.inventarioId, "DISCONTINUADO");
-        const nextVariants = await getVariantesByProductoId(detalle.productoId);
-        setVariantes(nextVariants);
-        if (variante.inventarioId === detalle.inventarioId) {
-          setDetalle((current) => current ? { ...current, estado: "DISCONTINUADO" } : current);
-        }
-        setStatus(`La variante "${label}" tiene historial; quedó marcada como DISCONTINUADO.`);
-      } else {
-        setStatus(messageText || "No se pudo eliminar la variante.");
-      }
+      setStatus(messageText || "No se pudo eliminar la variante.");
     } finally {
       setDeletingVariantId(null);
     }
@@ -223,12 +212,12 @@ export function ProductoDetalle() {
         </Button>
         <div className="flex gap-2">
           {status && <span className="self-center rounded-full border border-border/50 bg-card/70 px-3 py-1 text-xs font-semibold text-muted-foreground">{status}</span>}
-           <Button variant="outline" size="sm" className="rounded-xl gap-2" onClick={() => navigate(`/producto/${detalle.inventarioId}/editar`)}>
+           {!detalle.retiradoCatalogo && <Button variant="outline" size="sm" className="rounded-xl gap-2" onClick={() => navigate(`/producto/${detalle.inventarioId}/editar`)}>
             <Edit3 className="size-4" /> Editar Ficha
-          </Button>
-          <Button size="sm" className="rounded-xl gap-2 bg-primary shadow-lg shadow-primary/20" onClick={() => navigate(buildVentaRapidaRoute(detalle.inventarioId))}>
+          </Button>}
+          {!detalle.retiradoCatalogo && <Button size="sm" className="rounded-xl gap-2 bg-primary shadow-lg shadow-primary/20" onClick={() => navigate(buildVentaRapidaRoute(detalle.inventarioId))}>
             <Zap className="size-4" /> Venta Rápida
-          </Button>
+          </Button>}
         </div>
       </div>
 
@@ -245,8 +234,8 @@ export function ProductoDetalle() {
                   <div className="h-full w-full flex items-center justify-center opacity-10"><Boxes className="size-32" /></div>
                 )}
                 <div className="absolute top-6 right-6">
-                   <Badge variant={detalle.estado === 'ACTIVO' ? 'default' : 'secondary'} className="px-4 py-1.5 shadow-xl font-bold border-none bg-background/80 backdrop-blur-md text-foreground">
-                    {detalle.estado}
+                   <Badge variant={detalle.estado === 'ACTIVO' && !detalle.retiradoCatalogo ? 'default' : 'secondary'} className="px-4 py-1.5 shadow-xl font-bold border-none bg-background/80 backdrop-blur-md text-foreground">
+                    {detalle.retiradoCatalogo ? "RETIRADO DEL CATÁLOGO" : detalle.estado}
                    </Badge>
                 </div>
               </div>
@@ -271,7 +260,7 @@ export function ProductoDetalle() {
                  <div className={`p-5 rounded-3xl border ${detalle.stockActual <= detalle.stockMinimo ? 'bg-rose-500/5 border-rose-500/20' : 'bg-emerald-500/5 border-emerald-500/20'}`}>
                     <div className="flex items-center justify-between mb-2">
                         <p className="text-[10px] font-bold uppercase text-muted-foreground">Inventario Actual</p>
-                        {detalle.stockActual <= detalle.stockMinimo && (
+                        {!detalle.retiradoCatalogo && detalle.stockActual <= detalle.stockMinimo && (
                             <Badge variant="destructive" className="animate-pulse">REPOSICIÓN CRÍTICA</Badge>
                         )}
                     </div>

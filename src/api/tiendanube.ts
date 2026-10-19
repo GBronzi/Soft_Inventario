@@ -985,7 +985,7 @@ export async function revisarCambiosTiendanube(
   const unconfirmedOrderMatchesByVariant = buildOrderMatchesByVariant(ordenes, isUnconfirmedOrder);
 
   onProgress("Comparando Tiendanube contra la base local...");
-  const catalogo = await getCatalogoProductos();
+  const catalogo = await getCatalogoProductos({ incluirRetirados: true });
   const { byProduct, byVariant } = buildLocalIndexes(catalogo);
   const cambios: TiendanubeSyncChange[] = [];
 

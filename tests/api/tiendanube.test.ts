@@ -361,6 +361,32 @@ describe("revisarCambiosTiendanube", () => {
     mockUpsertCategorias.mockReset();
   });
 
+  it("reconoce una variante retirada como vinculada y no propone importarla otra vez", async () => {
+    localStorage.setItem("tiendanube_credentials", JSON.stringify({ accessToken: "token", userId: "123" }));
+    mockFetch
+      .mockResolvedValueOnce({ ok: true, status: 200, statusText: "OK", json: async () => [] })
+      .mockResolvedValueOnce({ ok: true, status: 200, statusText: "OK", json: async () => [] })
+      .mockResolvedValueOnce({ ok: true, status: 200, statusText: "OK", json: async () => [{
+        id: 10, name: { es: "Perfume" }, description: { es: "" }, published: true,
+        variants: [{ id: 20, product_id: 10, price: "100", stock: 5, sku: "SKU-1", barcode: null, values: [{ es: "100 ml" }] }],
+      }] })
+      .mockResolvedValueOnce({ ok: true, status: 200, statusText: "OK", json: async () => [] });
+    mockUpsertCategorias.mockResolvedValue(new Map());
+    mockGetCatalogoProductos.mockResolvedValue([{
+      inventarioId: 7, productoId: 1, nombre: "Perfume", descripcion: "", categoria: null, marca: null,
+      notas: null, imagenPathLocal: null, imagenUrl: null, seoTitulo: null, seoDescripcion: null, tags: null,
+      publicado: 1, tnProductId: 10, tnUpdatedAt: null, tnVariantId: 20, variante: "100 ml",
+      capacidadMedida: "100 ml", sku: "SKU-1", codigoBarras: null, stockActual: 5, stockMinimo: 0,
+      precioCompra: 0, precioVenta: 100, ubicacion: null, lote: null, vencimiento: null,
+      estado: "DISCONTINUADO", retiradoCatalogo: 1, tnCategoryIds: [],
+    }]);
+
+    const preview = await revisarCambiosTiendanube(() => undefined);
+
+    expect(mockGetCatalogoProductos).toHaveBeenCalledWith({ incluirRetirados: true });
+    expect(preview.cambios.some((change) => change.type === "PRODUCTO_NUEVO" || change.type === "VARIANTE_NUEVA")).toBe(false);
+  });
+
   it("no marca Datos cuando descripcion HTML y categoria vinculada equivalen al dato local", async () => {
     localStorage.setItem("tiendanube_credentials", JSON.stringify({ accessToken: "token", userId: "123" }));
     mockFetch

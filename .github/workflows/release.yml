@@ -35,21 +35,16 @@ jobs:
           tagName: ${{ github.ref_name }}
           releaseName: "Inventario App ${{ github.ref_name }}"
           releaseBody: |
-            ## Sincronizacion Tiendanube
-            - Se evita que una venta registrada en el programa deje avisos pendientes de stock cuando Tiendanube ya recibio correctamente el descuento.
-            - La revision de sincronizacion descarta automaticamente diferencias viejas de stock o precio si el programa y Tiendanube ya coinciden.
-            - Las ventas reales de Tiendanube y los cambios de datos, imagenes, productos o variantes siguen apareciendo para revision cuando corresponde.
-
-            ## Vista general y registros
-            - Vista general suma el panel Facturacion para cargar Tarjeta y Transferencia manualmente y sumar ventas de Tiendanube por mes.
-            - Las columnas de referencia y notas en tablas largas se recortan visualmente para evitar que rompan la pantalla en notebooks.
-
-            ## Actualizaciones
-            - La ventana flotante de nueva actualizacion usa fondo solido para mejorar la lectura de las notas.
+            ## Variantes y catalogo
+            - Eliminar una variante con historial la retira del catalogo sin borrar sus ventas ni movimientos.
+            - Las variantes vinculadas a Tiendanube conservan su identificador para que la sincronizacion no las importe otra vez como nuevas.
+            - Las variantes retiradas dejan de aparecer en busquedas, escaner, ventas, movimientos y alertas de stock locales.
+            - Se conserva el acceso a la ficha historica mediante su enlace directo, con una indicacion clara de que fue retirada.
 
             ## Importante
             - Esta actualizacion no elimina ni reinicia la base local del cliente.
-            - El instalador mantiene la base actual y solo actualiza los archivos del programa.
+            - Las variantes marcadas como DISCONTINUADO antes de esta version deben eliminarse otra vez para retirarlas del catalogo.
+            - Retirar una variante vinculada del catalogo local no la elimina de Tiendanube.
           releaseDraft: false
           prerelease: false
           uploadUpdaterJson: true

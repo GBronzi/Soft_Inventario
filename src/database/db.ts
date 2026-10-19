@@ -4,7 +4,7 @@ import { appDataDir, join } from "@tauri-apps/api/path";
 import schemaSql from "@/database/schema.sql?raw";
 
 const DATABASE_URL = "sqlite:inventario_v4.db";
-const SCHEMA_VERSION = 7;
+const SCHEMA_VERSION = 8;
 
 let databasePromise: Promise<Database> | null = null;
 
@@ -58,6 +58,7 @@ async function addMissingColumns(db: Database) {
     { table: "productos", column: "tn_product_id", ddl: "ALTER TABLE productos ADD COLUMN tn_product_id INTEGER" },
     { table: "productos", column: "tn_updated_at", ddl: "ALTER TABLE productos ADD COLUMN tn_updated_at TEXT" },
     { table: "inventario", column: "tn_variant_id", ddl: "ALTER TABLE inventario ADD COLUMN tn_variant_id INTEGER" },
+    { table: "inventario", column: "retirado_catalogo", ddl: "ALTER TABLE inventario ADD COLUMN retirado_catalogo INTEGER NOT NULL DEFAULT 0" },
     { table: "movimientos_stock", column: "concepto", ddl: "ALTER TABLE movimientos_stock ADD COLUMN concepto TEXT NOT NULL DEFAULT 'SIN_CLASIFICAR'" },
     { table: "movimientos_stock", column: "precio_unitario", ddl: "ALTER TABLE movimientos_stock ADD COLUMN precio_unitario REAL NOT NULL DEFAULT 0" },
     { table: "movimientos_stock", column: "costo_unitario", ddl: "ALTER TABLE movimientos_stock ADD COLUMN costo_unitario REAL NOT NULL DEFAULT 0" },

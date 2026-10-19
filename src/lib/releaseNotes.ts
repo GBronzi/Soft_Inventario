@@ -4,6 +4,17 @@ export interface ReleaseNoteSection {
 }
 
 const RELEASE_NOTES: Record<string, ReleaseNoteSection[]> = {
+  "1.2.10": [
+    {
+      title: "Variantes y catalogo",
+      items: [
+        "Eliminar una variante con historial la retira del catalogo y conserva sus ventas y movimientos.",
+        "Las variantes vinculadas a Tiendanube conservan su identificador para evitar que la sincronizacion las importe nuevamente como nuevas.",
+        "Una variante retirada deja de aparecer en busquedas, escaner, ventas y movimientos locales.",
+        "El resumen de inventario y las alertas de stock excluyen las variantes retiradas.",
+      ],
+    },
+  ],
   "1.2.9": [
     {
       title: "Sincronizacion Tiendanube",

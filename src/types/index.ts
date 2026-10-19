@@ -47,6 +47,7 @@ export interface CatalogoFilters {
   estado?: string;
   soloBajoStock?: boolean;
   soloConVariantes?: boolean;
+  incluirRetirados?: boolean;
 }
 
 export interface CatalogoFilterOptions {
@@ -85,6 +86,7 @@ export interface CatalogoItem {
   lote: string | null;
   vencimiento: string | null;
   estado: EstadoInventario;
+  retiradoCatalogo?: number;
   tnCategoryIds: number[];
 }
 
