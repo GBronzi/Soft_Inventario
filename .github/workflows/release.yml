@@ -35,16 +35,14 @@ jobs:
           tagName: ${{ github.ref_name }}
           releaseName: "Inventario App ${{ github.ref_name }}"
           releaseBody: |
-            ## Variantes y catalogo
-            - Eliminar una variante con historial la retira del catalogo sin borrar sus ventas ni movimientos.
-            - Las variantes vinculadas a Tiendanube conservan su identificador para que la sincronizacion no las importe otra vez como nuevas.
-            - Las variantes retiradas dejan de aparecer en busquedas, escaner, ventas, movimientos y alertas de stock locales.
-            - Se conserva el acceso a la ficha historica mediante su enlace directo, con una indicacion clara de que fue retirada.
+            ## Catalogo
+            - Nueva vista Retirados para localizar las variantes ocultas del catalogo.
+            - La restauracion individual conserva stock, historial e identificador de Tiendanube; no sincroniza stock durante la accion.
+            - Se muestran los identificadores local y de Tiendanube para distinguir variantes similares antes de restaurarlas.
 
             ## Importante
             - Esta actualizacion no elimina ni reinicia la base local del cliente.
-            - Las variantes marcadas como DISCONTINUADO antes de esta version deben eliminarse otra vez para retirarlas del catalogo.
-            - Retirar una variante vinculada del catalogo local no la elimina de Tiendanube.
+            - Las variantes retiradas permanecen en la base hasta que se restaure cada una expresamente.
           releaseDraft: false
           prerelease: false
           uploadUpdaterJson: true

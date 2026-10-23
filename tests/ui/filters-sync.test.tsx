@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   getCatalogoFilterOptions: vi.fn(),
   getCatalogoProductos: vi.fn(),
+  restaurarInventarioRetirado: vi.fn(),
   getInventarioMovimientoOptions: vi.fn(),
   getMovimientos: vi.fn(),
   getMovimientosByInventarioId: vi.fn(),
@@ -21,6 +22,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@/database/queries", () => ({
   getCatalogoFilterOptions: mocks.getCatalogoFilterOptions,
   getCatalogoProductos: mocks.getCatalogoProductos,
+  restaurarInventarioRetirado: mocks.restaurarInventarioRetirado,
   getInventarioMovimientoOptions: mocks.getInventarioMovimientoOptions,
   getMovimientos: mocks.getMovimientos,
   getMovimientosByInventarioId: mocks.getMovimientosByInventarioId,
@@ -89,6 +91,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocks.getCatalogoFilterOptions.mockResolvedValue({ categorias: ["Perfumes"], marcas: ["Maison"] });
   mocks.getCatalogoProductos.mockResolvedValue([]);
+  mocks.restaurarInventarioRetirado.mockResolvedValue(undefined);
   mocks.getInventarioMovimientoOptions.mockResolvedValue([inventoryOption]);
   mocks.getMovimientos.mockResolvedValue([]);
   mocks.getMovimientosByInventarioId.mockResolvedValue([]);
@@ -115,6 +118,27 @@ describe("Filtros y navegación sincronizados", () => {
     fireEvent.change(screen.getByPlaceholderText("Nombre, SKU..."), { target: { value: "tester" } });
     await waitFor(() => expect(router.state.location.search).toBe("?search=tester"), { timeout: 1500 });
     await waitFor(() => expect(mocks.getCatalogoProductos).toHaveBeenCalledWith(expect.objectContaining({ search: "tester" })));
+  });
+
+  it("muestra retirados y restaura solamente la variante seleccionada", async () => {
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    mocks.getCatalogoProductos.mockResolvedValue([
+      { ...productDetail, inventarioId: 462, nombre: "Decant", tnVariantId: 1620990908, stockActual: 91, estado: "DISCONTINUADO", retiradoCatalogo: 1 },
+      { ...productDetail, inventarioId: 463, nombre: "Decant", tnVariantId: 1622037389, stockActual: 91, estado: "DISCONTINUADO", retiradoCatalogo: 1 },
+      { ...productDetail, inventarioId: 464, nombre: "Otro", retiradoCatalogo: 0 },
+    ]);
+
+    renderRoute("/catalogo?vista=retirados", <Catalogo />);
+    await waitFor(() => expect(mocks.getCatalogoProductos).toHaveBeenCalledWith(expect.objectContaining({ incluirRetirados: true })));
+    expect(screen.getAllByRole("button", { name: "Restaurar" })).toHaveLength(2);
+    expect(screen.queryByText("Otro")).toBeNull();
+
+    fireEvent.click(screen.getAllByRole("button", { name: "Restaurar" })[0]);
+    await waitFor(() => expect(mocks.restaurarInventarioRetirado).toHaveBeenCalledWith(462));
+    expect(mocks.restaurarInventarioRetirado).toHaveBeenCalledTimes(1);
+    expect(mocks.pushInventarioIdATiendanube).not.toHaveBeenCalled();
+    expect(confirm).toHaveBeenCalledWith(expect.stringContaining("No se sincronizará el stock"));
+    confirm.mockRestore();
   });
 
   it("hidrata los filtros del historial de movimientos", async () => {

@@ -1,19 +1,20 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { convertFileSrc } from "@tauri-apps/api/core";
-import { Boxes, PackageSearch, Filter, LayoutGrid, List, Search, RotateCcw } from "lucide-react";
+import { ArchiveRestore, Boxes, PackageSearch, Filter, LayoutGrid, List, Search, RotateCcw } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { getCatalogoFilterOptions, getCatalogoProductos } from "@/database/queries";
+import { getCatalogoFilterOptions, getCatalogoProductos, restaurarInventarioRetirado } from "@/database/queries";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { TIENDANUBE_SYNCED_EVENT } from "@/hooks/useTiendanubeSync";
 import { updateLiquidGlassPointer } from "@/lib/liquidGlass";
 import type { CatalogoFilterOptions, CatalogoItem, EstadoInventario } from "@/types";
 
 type CatalogoFiltersState = {
+  vista: "catalogo" | "retirados";
   search: string;
   categoria: string;
   marca: string;
@@ -48,6 +49,8 @@ export function Catalogo() {
   const [viewType, setViewType] = useState<"grid" | "list">(() => {
     return (localStorage.getItem("catalogo_view_type") as "grid" | "list") || "grid";
   });
+  const [restoringId, setRestoringId] = useState<number | null>(null);
+  const [restoreStatus, setRestoreStatus] = useState<string | null>(null);
 
   const toggleView = (type: "grid" | "list") => {
     setViewType(type);
@@ -56,6 +59,7 @@ export function Catalogo() {
 
   // Read filters from URL
   const filters: CatalogoFiltersState = useMemo(() => ({
+    vista: searchParams.get("vista") === "retirados" ? "retirados" : "catalogo",
     search: searchParams.get("search") ?? "",
     categoria: searchParams.get("categoria") ?? "",
     marca: searchParams.get("marca") ?? "",
@@ -93,6 +97,7 @@ export function Catalogo() {
 
   useEffect(() => {
     const params = new URLSearchParams();
+    if (filters.vista === "retirados") params.set("vista", "retirados");
     if (debouncedSearch) params.set("search", debouncedSearch);
     if (filters.categoria) params.set("categoria", filters.categoria);
     if (filters.marca) params.set("marca", filters.marca);
@@ -101,7 +106,7 @@ export function Catalogo() {
     if (filters.soloConVariantes) params.set("conVariantes", "1");
     
     setSearchParams(params, { replace: true });
-  }, [debouncedSearch, filters.categoria, filters.marca, filters.estado, filters.soloBajoStock, filters.soloConVariantes, setSearchParams]);
+  }, [debouncedSearch, filters.vista, filters.categoria, filters.marca, filters.estado, filters.soloBajoStock, filters.soloConVariantes, setSearchParams]);
 
   useEffect(() => {
     async function load() {
@@ -109,11 +114,12 @@ export function Catalogo() {
         search: filters.search,
         categoria: filters.categoria,
         marca: filters.marca,
-        estado: filters.estado === "TODOS" ? undefined : filters.estado,
-        soloBajoStock: filters.soloBajoStock,
-        soloConVariantes: filters.soloConVariantes,
+        estado: filters.vista === "catalogo" && filters.estado !== "TODOS" ? filters.estado : undefined,
+        soloBajoStock: filters.vista === "catalogo" && filters.soloBajoStock,
+        soloConVariantes: filters.vista === "catalogo" && filters.soloConVariantes,
+        ...(filters.vista === "retirados" ? { incluirRetirados: true } : {}),
       });
-      setProductos(rows);
+      setProductos(filters.vista === "retirados" ? rows.filter((item) => item.retiradoCatalogo === 1) : rows);
     }
     void load();
   }, [filters, refreshKey]);
@@ -129,11 +135,39 @@ export function Catalogo() {
 
   const handleClearFilters = () => {
     setSearchInput("");
-    setSearchParams(new URLSearchParams(), { replace: true });
+    setSearchParams(filters.vista === "retirados" ? new URLSearchParams({ vista: "retirados" }) : new URLSearchParams(), { replace: true });
   };
+
+  function changeVista(vista: CatalogoFiltersState["vista"]) {
+    setSearchInput("");
+    setRestoreStatus(null);
+    setSearchParams(vista === "retirados" ? new URLSearchParams({ vista }) : new URLSearchParams());
+  }
+
+  async function handleRestore(variante: CatalogoItem) {
+    if (restoringId !== null) return;
+    const label = `${variante.nombre} · ${getVariantLabel(variante)}`;
+    if (!window.confirm(`¿Restaurar "${label}" en el catálogo? ID local: ${variante.inventarioId}. ID Tiendanube: ${variante.tnVariantId ?? "sin vínculo"}. Se conservarán sus ${variante.stockActual} unidades, historial y vínculo con Tiendanube. No se sincronizará el stock en esta acción.`)) return;
+    setRestoringId(variante.inventarioId);
+    setRestoreStatus(null);
+    try {
+      await restaurarInventarioRetirado(variante.inventarioId);
+      setRestoreStatus(`"${label}" volvió al catálogo. Verifica el stock antes de vender o sincronizar.`);
+      setRefreshKey((key) => key + 1);
+    } catch (error) {
+      setRestoreStatus(error instanceof Error ? error.message : String(error));
+    } finally {
+      setRestoringId(null);
+    }
+  }
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
+      <div className="inline-flex rounded-lg border border-border/60 bg-muted/30 p-1" role="group" aria-label="Vista de catálogo">
+        <Button size="sm" variant={filters.vista === "catalogo" ? "default" : "ghost"} onClick={() => changeVista("catalogo")}>Catálogo</Button>
+        <Button size="sm" variant={filters.vista === "retirados" ? "default" : "ghost"} onClick={() => changeVista("retirados")}>Retirados</Button>
+      </div>
+      {restoreStatus && <p role="status" className="text-sm text-foreground">{restoreStatus}</p>}
       <div className="flex flex-col gap-6 lg:flex-row">
         {/* Sidebar Filtros */}
         <aside className="w-full lg:w-80 shrink-0 space-y-4">
@@ -197,7 +231,7 @@ export function Catalogo() {
                 </select>
               </div>
 
-              <div className="space-y-2">
+              {filters.vista === "catalogo" && <div className="space-y-2">
                 <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Estado</label>
                 <div className="flex flex-wrap gap-2">
                   {["TODOS", "ACTIVO", "PAUSADO", "DISCONTINUADO"].map(e => (
@@ -216,9 +250,9 @@ export function Catalogo() {
                     </Button>
                   ))}
                 </div>
-              </div>
+              </div>}
 
-              <Button
+              {filters.vista === "catalogo" && <Button
                 variant={filters.soloBajoStock ? "destructive" : "outline"}
                 className="w-full rounded-xl text-xs"
                 onClick={() => {
@@ -228,9 +262,9 @@ export function Catalogo() {
                 }}
               >
                 {filters.soloBajoStock ? "Ver todo el stock" : "Ver solo bajo stock"}
-              </Button>
+              </Button>}
 
-              <Button
+              {filters.vista === "catalogo" && <Button
                 variant={filters.soloConVariantes ? "default" : "outline"}
                 className="w-full rounded-xl text-xs"
                 onClick={() => {
@@ -240,7 +274,7 @@ export function Catalogo() {
                 }}
               >
                 {filters.soloConVariantes ? "Ver todos" : "Ver solo con variantes"}
-              </Button>
+              </Button>}
             </CardContent>
           </Card>
         </aside>
@@ -249,9 +283,9 @@ export function Catalogo() {
         <div className="flex-1 space-y-6">
           <div className="liquid-surface flex items-center justify-between bg-card/30 p-4 rounded-2xl backdrop-blur-sm border border-border/50">
             <h3 className="text-sm font-medium text-muted-foreground">
-              Hemos encontrado <span className="text-foreground font-bold">{productosAgrupados.length}</span> productos · {productos.length} variantes
+              Hemos encontrado <span className="text-foreground font-bold">{productosAgrupados.length}</span> productos · {productos.length} variantes {filters.vista === "retirados" ? "retiradas" : ""}
             </h3>
-            <div className="flex gap-2">
+            {filters.vista === "catalogo" && <div className="flex gap-2">
               <Button 
                 variant="ghost" 
                 size="icon" 
@@ -268,7 +302,7 @@ export function Catalogo() {
               >
                 <List className="size-4" />
               </Button>
-            </div>
+            </div>}
           </div>
 
           {productosAgrupados.length === 0 ? (
@@ -276,6 +310,28 @@ export function Catalogo() {
               <PackageSearch className="size-16 text-muted-foreground/20 mb-4" />
               <p className="text-muted-foreground font-medium">No hay resultados para esta búsqueda</p>
               <Button variant="link" onClick={handleClearFilters}>Limpiar filtros</Button>
+            </div>
+          ) : filters.vista === "retirados" ? (
+            <div className="liquid-table-container overflow-x-auto">
+              <table className="operational-table w-full min-w-[760px] text-sm">
+                <thead><tr><th>Producto</th><th>Variante</th><th>Stock</th><th>ID local</th><th>ID Tiendanube</th><th>Acción</th></tr></thead>
+                <tbody>
+                  {productos.map((variante) => (
+                    <tr key={variante.inventarioId}>
+                      <td className="font-semibold">{variante.nombre}</td>
+                      <td>{getVariantLabel(variante)}</td>
+                      <td className="tabular-nums">{variante.stockActual} u.</td>
+                      <td className="tabular-nums">{variante.inventarioId}</td>
+                      <td className="tabular-nums">{variante.tnVariantId ?? "—"}</td>
+                      <td>
+                        <Button size="sm" variant="outline" disabled={restoringId !== null} onClick={() => void handleRestore(variante)}>
+                          <ArchiveRestore className="size-4" /> Restaurar
+                        </Button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           ) : viewType === "grid" ? (
             <div className="grid gap-6 sm:grid-cols-2 xl:grid-cols-3">

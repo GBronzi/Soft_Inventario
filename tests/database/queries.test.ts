@@ -20,6 +20,7 @@ import {
   getContactos,
   getContactosPage,
   registrarMovimientoStock,
+  restaurarInventarioRetirado,
   saveMovimientoTemplate,
   updateEstadoInventario,
   updateContacto,
@@ -292,6 +293,22 @@ describe("queries de inventario", () => {
 
     expect(mockDb.select.mock.calls[0][0]).toContain("WHERE i.retirado_catalogo = 0");
     expect(mockDb.select.mock.calls[1][0]).not.toContain("WHERE i.retirado_catalogo = 0");
+  });
+
+  it("restaura solo la variante elegida sin modificar stock ni historial", async () => {
+    mockDb.execute.mockResolvedValueOnce({ rowsAffected: 1 });
+
+    await restaurarInventarioRetirado(462);
+
+    expect(mockDb.execute).toHaveBeenCalledExactlyOnceWith(
+      expect.stringMatching(/SET retirado_catalogo = 0, estado = 'ACTIVO'[\s\S]*WHERE id = \$1 AND retirado_catalogo = 1/),
+      [462],
+    );
+  });
+
+  it("no restaura una variante inexistente o ya activa", async () => {
+    mockDb.execute.mockResolvedValueOnce({ rowsAffected: 0 });
+    await expect(restaurarInventarioRetirado(462)).rejects.toThrow("ya fue restaurada");
   });
 
   it("obtiene el kardex filtrado por variante", async () => {

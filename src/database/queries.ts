@@ -1101,6 +1101,19 @@ export async function deleteInventarioSeguro(inventarioId: number) {
   }
 }
 
+export async function restaurarInventarioRetirado(inventarioId: number) {
+  const db = await getDatabase();
+  const result = await db.execute(
+    `UPDATE inventario
+     SET retirado_catalogo = 0, estado = 'ACTIVO', actualizado_en = CURRENT_TIMESTAMP
+     WHERE id = $1 AND retirado_catalogo = 1`,
+    [inventarioId],
+  );
+  if (result.rowsAffected !== 1) {
+    throw new Error("La variante no existe o ya fue restaurada.");
+  }
+}
+
 export async function getConfiguracionEmpresa(): Promise<ConfiguracionEmpresa> {
   const db = await getDatabase();
   const rows = await db.select<

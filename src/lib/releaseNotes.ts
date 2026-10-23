@@ -4,6 +4,16 @@ export interface ReleaseNoteSection {
 }
 
 const RELEASE_NOTES: Record<string, ReleaseNoteSection[]> = {
+  "1.2.11": [
+    {
+      title: "Catalogo",
+      items: [
+        "Nueva vista Retirados para localizar variantes ocultas del catalogo.",
+        "Permite restaurar una variante retirada sin modificar su stock, historial ni identificador de Tiendanube.",
+        "Muestra los identificadores local y de Tiendanube para distinguir variantes similares antes de restaurarlas.",
+      ],
+    },
+  ],
   "1.2.10": [
     {
       title: "Variantes y catalogo",
