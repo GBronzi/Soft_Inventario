@@ -3,8 +3,11 @@ import {
   ClipboardList,
   Gauge,
   PackagePlus,
+  Receipt,
+  ContactRound,
   Settings,
   Store,
+  ShoppingCart,
   type LucideIcon,
 } from "lucide-react";
 
@@ -19,7 +22,7 @@ export interface NavigationItem {
 export const navigationItems: NavigationItem[] = [
   {
     to: "/dashboard",
-    label: "Dashboard",
+    label: "Vista general",
     description: "Vista general del inventario.",
     icon: Gauge,
     matches: (pathname) => pathname.startsWith("/dashboard"),
@@ -39,6 +42,13 @@ export const navigationItems: NavigationItem[] = [
     matches: (pathname) => pathname.startsWith("/producto"),
   },
   {
+    to: "/ventas",
+    label: "Nueva venta",
+    description: "Caja y ventas múltiples.",
+    icon: ShoppingCart,
+    matches: (pathname) => pathname.startsWith("/ventas"),
+  },
+  {
     to: "/movimientos",
     label: "Movimientos",
     description: "Historial y kardex base.",
@@ -46,9 +56,23 @@ export const navigationItems: NavigationItem[] = [
     matches: (pathname) => pathname.startsWith("/movimientos"),
   },
   {
+    to: "/gastos",
+    label: "Gastos",
+    description: "Control mensual de egresos.",
+    icon: Receipt,
+    matches: (pathname) => pathname.startsWith("/gastos"),
+  },
+  {
+    to: "/contactos",
+    label: "Contactos",
+    description: "Agenda e intercambio CSV.",
+    icon: ContactRound,
+    matches: (pathname) => pathname.startsWith("/contactos"),
+  },
+  {
     to: "/tiendanube",
-    label: "Tiendanube",
-    description: "Integración externa futura.",
+    label: "Sincronización",
+    description: "Tiendanube y stock local.",
     icon: Store,
     matches: (pathname) => pathname.startsWith("/tiendanube"),
   },

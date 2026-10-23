@@ -1,6 +1,7 @@
 import { Button as ButtonPrimitive } from "@base-ui/react/button"
 import { cva, type VariantProps } from "class-variance-authority"
 
+import { updateLiquidGlassPointer } from "@/lib/liquidGlass"
 import { cn } from "@/lib/utils"
 
 const buttonVariants = cva(
@@ -44,12 +45,20 @@ function Button({
   className,
   variant = "default",
   size = "default",
+  onPointerMove,
   ...props
 }: ButtonPrimitive.Props & VariantProps<typeof buttonVariants>) {
+  function handlePointerMove(event: Parameters<NonNullable<ButtonPrimitive.Props["onPointerMove"]>>[0]) {
+    updateLiquidGlassPointer(event);
+    onPointerMove?.(event);
+  }
+
   return (
     <ButtonPrimitive
       data-slot="button"
-      className={cn(buttonVariants({ variant, size, className }))}
+      data-variant={variant}
+      onPointerMove={handlePointerMove}
+      className={cn(buttonVariants({ variant, size, className }), "liquid-control")}
       {...props}
     />
   )

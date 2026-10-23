@@ -12,7 +12,7 @@ export function ThemeToggle() {
   ];
 
   return (
-    <div className="flex items-center gap-1 rounded-xl border border-border bg-muted/30 p-1">
+    <div className="liquid-surface flex items-center gap-1 rounded-xl border border-border bg-muted/30 p-1">
       {themes.map((t) => {
         const Icon = t.icon;
         const isActive = theme === t.id;

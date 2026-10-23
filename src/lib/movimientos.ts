@@ -1,4 +1,49 @@
-import type { MovimientoListado, TipoMovimientoStock } from "@/types";
+import type { MovimientoConcepto, MovimientoListado, TipoMovimientoStock } from "@/types";
+
+export const CONCEPTOS_POR_TIPO: Record<TipoMovimientoStock, Array<{ value: MovimientoConcepto; label: string }>> = {
+  ENTRADA: [
+    { value: "COMPRA_REPOSICION", label: "Compra / reposición" },
+    { value: "DEVOLUCION_CLIENTE", label: "Devolución de cliente" },
+    { value: "CAMBIO_ENTRADA", label: "Producto recibido por cambio" },
+    { value: "ENTRADA_OTRA", label: "Otra entrada" },
+  ],
+  SALIDA: [
+    { value: "VENTA", label: "Venta" },
+    { value: "CAMBIO_SALIDA", label: "Producto entregado por cambio" },
+    { value: "CAMBIO_GARANTIA", label: "Reemplazo por garantía / falla" },
+    { value: "ROTURA", label: "Rotura" },
+    { value: "FALLA", label: "Falla" },
+    { value: "VENCIMIENTO", label: "Vencimiento" },
+    { value: "REGALO_SORTEO", label: "Sorteo / regalo / muestra" },
+    { value: "DEVOLUCION_PROVEEDOR", label: "Devolución a proveedor" },
+    { value: "PERDIDA_FALTANTE", label: "Pérdida / faltante" },
+    { value: "SALIDA_OTRA", label: "Otra salida" },
+  ],
+  AJUSTE: [
+    { value: "CORRECCION_STOCK", label: "Corrección por conteo físico" },
+    { value: "SINCRONIZACION_TN", label: "Ajuste por Tiendanube" },
+  ],
+};
+
+export function getConceptoLabel(concepto: MovimientoConcepto) {
+  return Object.values(CONCEPTOS_POR_TIPO).flat().find((option) => option.value === concepto)?.label ?? concepto;
+}
+
+export function getMovimientoQuantityTone(movimiento: Pick<MovimientoListado, "tipoMovimiento" | "cantidad">) {
+  const cantidad = Number(movimiento.cantidad);
+  const isPositive = movimiento.tipoMovimiento === "ENTRADA" || (movimiento.tipoMovimiento === "AJUSTE" && cantidad > 0);
+  const isNegative = movimiento.tipoMovimiento === "SALIDA" || (movimiento.tipoMovimiento === "AJUSTE" && cantidad < 0);
+
+  if (isPositive) return { className: "movement-quantity-positive text-emerald-600 dark:text-emerald-400", prefix: "+" };
+  if (isNegative) return { className: "movement-quantity-negative text-rose-600 dark:text-rose-400", prefix: "-" };
+
+  return { className: "text-muted-foreground", prefix: "" };
+}
+
+export function formatMovimientoQuantity(movimiento: Pick<MovimientoListado, "tipoMovimiento" | "cantidad">) {
+  const tone = getMovimientoQuantityTone(movimiento);
+  return `${tone.prefix}${Math.abs(Number(movimiento.cantidad) || 0)}`;
+}
 
 export const VENTA_RAPIDA_LOCAL_MOTIVO = "Venta rápida local";
 export const VENTA_RAPIDA_LOCAL_REFERENCIA = "VENTA_RAPIDA_LOCAL";

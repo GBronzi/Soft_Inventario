@@ -1,25 +1,35 @@
 import { FormEvent, useEffect, useState } from "react";
-import { invoke, convertFileSrc } from "@tauri-apps/api/core";
+import { getVersion } from "@tauri-apps/api/app";
+import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
-import { 
-  Building2, 
-  Database, 
-  ShieldCheck, 
-  Image as ImageIcon, 
-  Save, 
-  RefreshCcw, 
-  Globe, 
+import {
+  Building2,
+  Copy,
+  Database,
+  Download,
+  Globe,
   Lock,
-  HardDrive
+  HardDrive,
+  Monitor,
+  Image as ImageIcon,
+  KeyRound,
+  PackageCheck,
+  RefreshCcw,
+  RotateCcw,
+  Save,
+  ShieldCheck,
+  UserRoundCog,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { DATABASE_URL, pingDatabase } from "@/database/db";
+import { createPreUpdateBackup, DATABASE_URL, pingDatabase } from "@/database/db";
+import { checkForUpdate, type AvailableUpdate } from "@/lib/updater";
+import { UI_SCALE_OPTIONS, useTheme, type UiScale } from "@/components/shared/ThemeProvider";
 import { getConfiguracionEmpresa, saveConfiguracionEmpresa } from "@/database/queries";
-import type { ConfiguracionEmpresaDraft, LicenseStatus } from "@/types";
+import type { AuthStatus, ConfiguracionEmpresaDraft, LicenseStatus } from "@/types";
 
 const initialForm: ConfiguracionEmpresaDraft = {
   nombreEmpresa: "",
@@ -28,22 +38,41 @@ const initialForm: ConfiguracionEmpresaDraft = {
 };
 
 export function Configuracion() {
+  const { uiScale, setUiScale } = useTheme();
+  const selectedScale = UI_SCALE_OPTIONS.find((option) => option.id === uiScale) ?? UI_SCALE_OPTIONS[1];
   const [dbReady, setDbReady] = useState(false);
   const [license, setLicense] = useState<LicenseStatus | null>(null);
   const [form, setForm] = useState<ConfiguracionEmpresaDraft>(initialForm);
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
+  const [authStatus, setAuthStatus] = useState<AuthStatus | null>(null);
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newUsername, setNewUsername] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [securityStatus, setSecurityStatus] = useState<string | null>(null);
+  const [recoveryCode, setRecoveryCode] = useState<string | null>(null);
+  const [recoveryPassword, setRecoveryPassword] = useState("");
+  const [securitySaving, setSecuritySaving] = useState(false);
+  const [appVersion, setAppVersion] = useState("1.0.12");
+  const [availableUpdate, setAvailableUpdate] = useState<AvailableUpdate | null>(null);
+  const [updateStatus, setUpdateStatus] = useState<string | null>(null);
+  const [checkingUpdate, setCheckingUpdate] = useState(false);
+  const [updateProgress, setUpdateProgress] = useState(0);
+  const [backupStatus, setBackupStatus] = useState<string | null>(null);
+  const [backupRunning, setBackupRunning] = useState(false);
 
   const loadData = async () => {
     try {
-      const [databaseOk, licenseStatus, empresaConfig] = await Promise.all([
+      const [databaseOk, empresaConfig, accessStatus] = await Promise.all([
         pingDatabase(),
-        invoke<LicenseStatus>("get_license_status"),
         getConfiguracionEmpresa(),
+        invoke<AuthStatus>("get_auth_status"),
       ]);
 
       setDbReady(databaseOk);
-      setLicense(licenseStatus);
+      setAuthStatus(accessStatus);
+      setNewUsername(accessStatus.username ?? "");
       setForm({
         nombreEmpresa: empresaConfig.nombreEmpresa ?? "",
         logoPathLocal: empresaConfig.logoPathLocal ?? "",
@@ -56,7 +85,78 @@ export function Configuracion() {
 
   useEffect(() => {
     void loadData();
+    void invoke<LicenseStatus>("get_license_status")
+      .then(setLicense)
+      .catch((error) => {
+        console.error(error);
+        setLicense({
+          isValid: false,
+          holder: null,
+          expiresAt: null,
+          mode: "error",
+          message: "No se pudo consultar el estado local de la licencia.",
+        });
+      });
+    void getVersion().then(setAppVersion).catch(() => undefined);
   }, []);
+
+  async function handleCheckForUpdates() {
+    setCheckingUpdate(true);
+    setUpdateStatus("Buscando actualizaciones...");
+    try {
+      const nextUpdate = await checkForUpdate();
+      setAvailableUpdate(nextUpdate);
+      setUpdateStatus(nextUpdate ? `Versión ${nextUpdate.version} disponible.` : "El programa está actualizado.");
+    } catch (error) {
+      setUpdateStatus(`Error al buscar actualizaciones: ${String(error)}`);
+    } finally {
+      setCheckingUpdate(false);
+    }
+  }
+
+  async function handleInstallUpdate() {
+    if (!availableUpdate) return;
+    setCheckingUpdate(true);
+    setUpdateStatus("Creando respaldo y descargando...");
+    try {
+      await availableUpdate.install(setUpdateProgress);
+    } catch (error) {
+      setUpdateStatus(`Error al instalar: ${String(error)}`);
+      setCheckingUpdate(false);
+    }
+  }
+
+  async function handleManualBackup() {
+    setBackupRunning(true);
+    setBackupStatus("Creando respaldo...");
+    try {
+      const path = await createPreUpdateBackup(appVersion);
+      setBackupStatus(`Respaldo creado en: ${path}`);
+    } catch (error) {
+      setBackupStatus(`Error al crear respaldo: ${String(error)}`);
+    } finally {
+      setBackupRunning(false);
+    }
+  }
+
+  async function handleRestoreBackup() {
+    setBackupStatus(null);
+    try {
+      const selected = await open({
+        multiple: false,
+        filters: [{ name: "Respaldo de inventario", extensions: ["db", "sqlite", "sqlite3"] }],
+      });
+      if (typeof selected !== "string") return;
+      const confirmed = window.confirm(
+        "La aplicación se reiniciará y reemplazará la base actual por este respaldo. Antes se creará una copia automática de seguridad. ¿Desea continuar?",
+      );
+      if (!confirmed) return;
+      setBackupStatus("Validando respaldo y preparando restauración...");
+      await invoke("restore_database", { sourcePath: selected });
+    } catch (error) {
+      setBackupStatus(`Error al restaurar respaldo: ${String(error)}`);
+    }
+  }
 
   async function handleSelectLogo() {
     try {
@@ -86,6 +186,45 @@ export function Configuracion() {
     }
   }
 
+  async function handleCredentialChange(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setSecurityStatus(null);
+    if (newPassword !== confirmPassword) {
+      setSecurityStatus("Error: las contraseñas nuevas no coinciden.");
+      return;
+    }
+    setSecuritySaving(true);
+    try {
+      const nextStatus = await invoke<AuthStatus>("change_credentials", { currentPassword, username: newUsername, password: newPassword });
+      setAuthStatus(nextStatus);
+      setCurrentPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
+      setSecurityStatus("Credenciales actualizadas correctamente.");
+    } catch (error) {
+      setSecurityStatus(`Error: ${String(error)}`);
+    } finally {
+      setSecuritySaving(false);
+    }
+  }
+
+  async function handleGenerateRecoveryCode() {
+    setSecurityStatus(null);
+    setRecoveryCode(null);
+    setSecuritySaving(true);
+    try {
+      const code = await invoke<string>("generate_recovery_code", { currentPassword: recoveryPassword });
+      setRecoveryCode(code);
+      setAuthStatus((value) => value ? { ...value, recoveryConfigured: true } : value);
+      setRecoveryPassword("");
+      setSecurityStatus("Código generado. Guárdalo ahora: sólo se mostrará esta vez.");
+    } catch (error) {
+      setSecurityStatus(`Error: ${String(error)}`);
+    } finally {
+      setSecuritySaving(false);
+    }
+  }
+
   return (
     <div className="space-y-6 animate-in fade-in duration-500 max-w-5xl mx-auto">
       <div className="flex items-center justify-between">
@@ -97,6 +236,65 @@ export function Configuracion() {
           <RefreshCcw className="size-4" /> Refrescar Estado
         </Button>
       </div>
+
+      <Card className="border-none bg-card/60 shadow-xl backdrop-blur-md">
+        <CardHeader>
+          <div className="flex items-center gap-3">
+            <div className="rounded-lg bg-primary/10 p-2 text-primary"><UserRoundCog className="size-5" /></div>
+            <div>
+              <CardTitle>Seguridad de acceso</CardTitle>
+              <CardDescription>Cambia las credenciales y prepara una recuperación segura para esta instalación.</CardDescription>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="grid gap-6 lg:grid-cols-2">
+          <form onSubmit={handleCredentialChange} className="space-y-4">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <label className="space-y-2 text-sm font-semibold">
+                <span>Usuario</span>
+                <Input value={newUsername} onChange={(event) => setNewUsername(event.target.value)} minLength={3} required />
+              </label>
+              <label className="space-y-2 text-sm font-semibold">
+                <span>Contraseña actual</span>
+                <Input type="password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} minLength={8} required />
+              </label>
+              <label className="space-y-2 text-sm font-semibold">
+                <span>Nueva contraseña</span>
+                <Input type="password" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} minLength={8} required />
+              </label>
+              <label className="space-y-2 text-sm font-semibold">
+                <span>Confirmar contraseña</span>
+                <Input type="password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} minLength={8} required />
+              </label>
+            </div>
+            <Button type="submit" disabled={securitySaving} className="gap-2"><KeyRound className="size-4" /> Actualizar credenciales</Button>
+          </form>
+
+          <div className="space-y-4 border-t border-border pt-5 lg:border-l lg:border-t-0 lg:pl-6 lg:pt-0">
+            <div>
+              <p className="font-semibold">Código de recuperación</p>
+              <p className="mt-1 text-sm text-muted-foreground">Es único para esta instalación y queda invalidado después de restablecer el acceso.</p>
+            </div>
+            <Badge variant="outline">{authStatus?.recoveryConfigured ? "Recuperación configurada" : "Pendiente de configurar"}</Badge>
+            <label className="block space-y-2 text-sm font-semibold">
+              <span>Contraseña actual</span>
+              <Input type="password" value={recoveryPassword} onChange={(event) => setRecoveryPassword(event.target.value)} minLength={8} placeholder="Confirma tu identidad" />
+            </label>
+            <Button type="button" variant="outline" disabled={securitySaving || recoveryPassword.length < 8} onClick={() => void handleGenerateRecoveryCode()} className="gap-2">
+              <KeyRound className="size-4" /> {authStatus?.recoveryConfigured ? "Generar un código nuevo" : "Generar código"}
+            </Button>
+            {recoveryCode && (
+              <div className="rounded-md border border-amber-500/30 bg-amber-500/10 p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <code className="break-all text-base font-bold tracking-wider">{recoveryCode}</code>
+                  <Button type="button" variant="ghost" size="icon" title="Copiar código" aria-label="Copiar código" onClick={() => void navigator.clipboard.writeText(recoveryCode)}><Copy className="size-4" /></Button>
+                </div>
+              </div>
+            )}
+          </div>
+          {securityStatus && <p role="status" className={`text-sm font-semibold lg:col-span-2 ${securityStatus.startsWith("Error") ? "text-rose-500" : "text-emerald-600"}`}>{securityStatus}</p>}
+        </CardContent>
+      </Card>
 
       <div className="grid gap-6 lg:grid-cols-12">
         {/* Identidad de la Empresa */}
@@ -131,7 +329,7 @@ export function Configuracion() {
                        <Globe className="size-3" /> Moneda del Sistema
                     </label>
                     <select 
-                      className="h-12 w-full rounded-xl border border-border/50 bg-background/50 px-4 py-2 text-sm font-black focus:ring-2 focus:ring-primary/20 appearance-none outline-none"
+                      className="liquid-select h-12 w-full rounded-xl border border-border/50 bg-background/50 px-4 py-2 text-sm font-black focus:ring-2 focus:ring-primary/20 appearance-none outline-none"
                       value={form.moneda}
                       onChange={e => setForm({...form, moneda: e.target.value.toUpperCase()})}
                     >
@@ -173,6 +371,61 @@ export function Configuracion() {
 
         {/* Sidebar: Estado e Infraestructura */}
         <div className="lg:col-span-12 xl:col-span-4 space-y-6">
+          <Card className="border-none shadow-xl bg-card/60 backdrop-blur-md">
+            <CardHeader className="pb-3">
+              <CardTitle className="flex items-center gap-2 text-sm font-black uppercase tracking-widest opacity-60"><Monitor className="size-4" /> Apariencia y resolución</CardTitle>
+              <CardDescription>Ajusta texto, botones y espacios según la pantalla del cliente.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <label className="space-y-2 text-sm font-semibold">
+                <span>Tipo de pantalla</span>
+                <select
+                  className="liquid-select h-11 w-full rounded-xl border border-border/50 bg-background/50 px-3 py-2 text-sm font-bold outline-none focus:ring-2 focus:ring-primary/20"
+                  value={uiScale}
+                  onChange={(event) => setUiScale(event.target.value as UiScale)}
+                >
+                  {UI_SCALE_OPTIONS.map((option) => (
+                    <option key={option.id} value={option.id}>{option.label}</option>
+                  ))}
+                </select>
+              </label>
+              <div className="rounded-2xl border border-border/50 bg-background/40 p-4">
+                <p className="text-xs font-black uppercase tracking-widest text-muted-foreground">{selectedScale.label}</p>
+                <p className="mt-1 text-sm text-muted-foreground">{selectedScale.description}</p>
+              </div>
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                {UI_SCALE_OPTIONS.map((option) => (
+                  <Button
+                    key={option.id}
+                    type="button"
+                    variant={uiScale === option.id ? "default" : "outline"}
+                    size="sm"
+                    className="h-auto min-h-10 rounded-xl px-2 py-2 text-[11px] font-black"
+                    onClick={() => setUiScale(option.id)}
+                  >
+                    {option.label}
+                  </Button>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="border-none shadow-xl bg-card/60 backdrop-blur-md">
+            <CardHeader className="pb-3">
+              <CardTitle className="flex items-center gap-2 text-sm font-black uppercase tracking-widest opacity-60"><PackageCheck className="size-4" /> Actualizaciones</CardTitle>
+              <CardDescription>Versión instalada: {appVersion}</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {updateStatus && <p role="status" className={`text-xs ${updateStatus.startsWith("Error") ? "text-rose-500" : "text-muted-foreground"}`}>{updateStatus}</p>}
+              {checkingUpdate && updateProgress > 0 && <div className="h-2 overflow-hidden rounded-full bg-muted"><div className="h-full bg-primary transition-all" style={{ width: `${updateProgress}%` }} /></div>}
+              {availableUpdate ? (
+                <Button className="w-full gap-2" disabled={checkingUpdate} onClick={() => void handleInstallUpdate()}><Download className="size-4" /> {checkingUpdate ? `Descargando ${updateProgress}%` : `Instalar versión ${availableUpdate.version}`}</Button>
+              ) : (
+                <Button variant="outline" className="w-full gap-2" disabled={checkingUpdate} onClick={() => void handleCheckForUpdates()}><RefreshCcw className={`size-4 ${checkingUpdate ? "animate-spin" : ""}`} /> Buscar actualizaciones</Button>
+              )}
+            </CardContent>
+          </Card>
+
           <Card className="border-none shadow-xl bg-card/60 backdrop-blur-md">
             <CardHeader className="pb-3">
                <CardTitle className="text-sm font-black uppercase tracking-widest opacity-40 flex items-center gap-2">
@@ -226,7 +479,7 @@ export function Configuracion() {
             </CardContent>
           </Card>
 
-          <Card className="border-none shadow-xl bg-primary text-primary-foreground overflow-hidden group">
+          <Card className="liquid-backup-card border-none shadow-xl bg-primary text-primary-foreground overflow-hidden group">
             <CardContent className="p-6 relative">
                <HardDrive className="absolute -right-4 -bottom-4 size-32 opacity-10 group-hover:scale-110 transition-transform" />
                <div className="relative space-y-4">
@@ -234,8 +487,16 @@ export function Configuracion() {
                     <h3 className="font-black text-xl">Backup Local</h3>
                     <p className="text-xs opacity-70">Haz una copia manual de tu base de datos SQLite ahora mismo.</p>
                   </div>
-                  <Button variant="secondary" className="w-full rounded-xl font-bold h-11 bg-white text-primary hover:bg-white/90 shadow-2xl">
-                    Crear Backup (.db)
+                  {backupStatus && (
+                    <p role="status" className={`rounded-xl border px-3 py-2 text-xs font-semibold ${backupStatus.startsWith("Error") ? "border-rose-300/30 bg-rose-500/10 text-rose-100" : "border-white/20 bg-white/10 text-primary-foreground"}`}>
+                      {backupStatus}
+                    </p>
+                  )}
+                  <Button variant="secondary" onClick={() => void handleManualBackup()} disabled={backupRunning} className="backup-create-button w-full rounded-xl font-bold h-11 bg-white shadow-2xl">
+                    {backupRunning ? "Creando backup..." : "Crear Backup (.db)"}
+                  </Button>
+                  <Button variant="outline" onClick={() => void handleRestoreBackup()} disabled={backupRunning} className="backup-restore-button w-full rounded-xl font-bold h-11 border-current/30 bg-transparent text-primary-foreground hover:bg-white/10 hover:text-primary-foreground">
+                    <RotateCcw className="mr-2 size-4" /> Restaurar Backup
                   </Button>
                </div>
             </CardContent>
