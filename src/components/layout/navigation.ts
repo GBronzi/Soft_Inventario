@@ -4,6 +4,7 @@ import {
   Gauge,
   PackagePlus,
   Receipt,
+  ChartColumn,
   ContactRound,
   Settings,
   Store,
@@ -61,6 +62,13 @@ export const navigationItems: NavigationItem[] = [
     description: "Control mensual de egresos.",
     icon: Receipt,
     matches: (pathname) => pathname.startsWith("/gastos"),
+  },
+  {
+    to: "/reportes",
+    label: "Reportes",
+    description: "Ventas y comparativas.",
+    icon: ChartColumn,
+    matches: (pathname) => pathname.startsWith("/reportes"),
   },
   {
     to: "/contactos",

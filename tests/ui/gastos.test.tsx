@@ -4,6 +4,13 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockGetResumenMensualMovimientos = vi.hoisted(() => vi.fn());
+const gastosDb = vi.hoisted(() => ({
+  getGastos: vi.fn(),
+  saveGasto: vi.fn(),
+  deleteGasto: vi.fn(),
+}));
+
+vi.mock("@/database/gastos", () => gastosDb);
 
 vi.mock("@/database/queries", () => ({
   MONTHLY_SALES_UPDATED_EVENT: "soft_inventario_ventas_actualizadas",
@@ -23,8 +30,11 @@ const gastoRegistrado = {
 };
 
 beforeEach(() => {
+  vi.clearAllMocks();
   window.localStorage.clear();
-  window.localStorage.setItem("soft_inventario_gastos", JSON.stringify([gastoRegistrado]));
+  gastosDb.getGastos.mockResolvedValue([gastoRegistrado]);
+  gastosDb.saveGasto.mockResolvedValue(undefined);
+  gastosDb.deleteGasto.mockResolvedValue(undefined);
   mockGetResumenMensualMovimientos.mockImplementation(async (mes: string) => ({ mes, ventasNetas: mes === "2026-06" ? 300000 : 0 }));
   vi.spyOn(window, "scrollTo").mockImplementation(() => undefined);
 });
@@ -47,19 +57,15 @@ describe("Gastos", () => {
     fireEvent.change(screen.getByDisplayValue("Alquiler"), { target: { value: "Alquiler actualizado" } });
     fireEvent.click(screen.getByRole("button", { name: "Guardar cambios" }));
 
-    await waitFor(() => {
-      const stored = JSON.parse(window.localStorage.getItem("soft_inventario_gastos") ?? "[]");
-      expect(stored).toHaveLength(1);
-      expect(stored[0].nombre).toBe("Alquiler actualizado");
-    });
+    await waitFor(() => expect(gastosDb.saveGasto).toHaveBeenCalledWith(expect.objectContaining({ nombre: "Alquiler actualizado" })));
 
     const row = screen.getByText("Alquiler actualizado").closest("tr");
     expect(row).not.toBeNull();
     fireEvent.click(within(row!).getByRole("button", { name: "Eliminar Alquiler actualizado" }));
 
     expect(confirm).toHaveBeenCalledOnce();
-    expect(JSON.parse(window.localStorage.getItem("soft_inventario_gastos") ?? "[]")).toEqual([]);
-    expect(screen.getByText("No hay gastos registrados.")).toBeTruthy();
+    await waitFor(() => expect(gastosDb.deleteGasto).toHaveBeenCalledWith("gasto-1"));
+    await waitFor(() => expect(screen.getByText("No hay gastos registrados.")).toBeTruthy());
   });
 
   it("filtra la tabla por mes sin eliminar el historial", async () => {
@@ -71,7 +77,7 @@ describe("Gastos", () => {
       items: [{ id: "detalle-2", concepto: "Campana julio", valor: 50000 }],
       total: 50000,
     };
-    window.localStorage.setItem("soft_inventario_gastos", JSON.stringify([gastoRegistrado, gastoJulio]));
+    gastosDb.getGastos.mockResolvedValue([gastoRegistrado, gastoJulio]);
     render(<Gastos />);
 
     expect(await screen.findByText("Alquiler mensual")).toBeTruthy();
@@ -84,5 +90,18 @@ describe("Gastos", () => {
     fireEvent.click(screen.getByRole("button", { name: "Todos los meses" }));
     expect(screen.getByText("Alquiler mensual")).toBeTruthy();
     expect(screen.getByText("Campana julio")).toBeTruthy();
+  });
+
+  it("conserva el formulario si SQLite rechaza el guardado", async () => {
+    gastosDb.saveGasto.mockRejectedValueOnce(new Error("disco lleno"));
+    render(<Gastos />);
+    await screen.findByText("Alquiler mensual");
+
+    fireEvent.change(screen.getByPlaceholderText("Luz, alquiler, publicidad..."), { target: { value: "Internet" } });
+    fireEvent.change(screen.getByPlaceholderText("Ej: Luz del mes"), { target: { value: "Conexión" } });
+    fireEvent.click(screen.getByRole("button", { name: "Guardar gasto" }));
+
+    expect(await screen.findByRole("alert")).toHaveProperty("textContent", expect.stringContaining("disco lleno"));
+    expect(screen.getByDisplayValue("Internet")).toBeTruthy();
   });
 });

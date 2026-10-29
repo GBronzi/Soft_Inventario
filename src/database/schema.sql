@@ -123,6 +123,23 @@ CREATE TABLE IF NOT EXISTS configuracion_empresa (
     actualizada_en DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS gastos (
+    id TEXT PRIMARY KEY,
+    nombre TEXT NOT NULL,
+    fecha TEXT NOT NULL,
+    descripcion TEXT,
+    items_json TEXT NOT NULL,
+    total REAL NOT NULL,
+    creado_en TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_gastos_fecha ON gastos (fecha DESC);
+
+CREATE TABLE IF NOT EXISTS gastos_migracion (
+    origen TEXT PRIMARY KEY,
+    completada_en DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE IF NOT EXISTS contactos (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     nombre TEXT NOT NULL,

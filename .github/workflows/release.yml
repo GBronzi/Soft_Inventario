@@ -35,14 +35,18 @@ jobs:
           tagName: ${{ github.ref_name }}
           releaseName: "Inventario App ${{ github.ref_name }}"
           releaseBody: |
-            ## Catalogo
-            - Nueva vista Retirados para localizar las variantes ocultas del catalogo.
-            - La restauracion individual conserva stock, historial e identificador de Tiendanube; no sincroniza stock durante la accion.
-            - Se muestran los identificadores local y de Tiendanube para distinguir variantes similares antes de restaurarlas.
+            ## Reportes de ventas
+            - Nueva ventana con importes y unidades por dia, mes y año.
+            - Comparacion con el mismo mes del año anterior y ranking de productos vendidos.
+            - Desglose por Programa/Tiendanube y por Yves d'Orgeval, Arabes / demas marcas y Decant.
+
+            ## Respaldo de gastos
+            - Los gastos nuevos se guardan en SQLite y se incluyen en los siguientes respaldos .db.
+            - Los gastos anteriores se importan una sola vez desde el almacenamiento local al abrir Gastos o crear un respaldo.
 
             ## Importante
-            - Esta actualizacion no elimina ni reinicia la base local del cliente.
-            - Las variantes retiradas permanecen en la base hasta que se restaure cada una expresamente.
+            - Los respaldos .db de versiones anteriores no contenian gastos. Se recomienda exportar Gastos a CSV antes de instalar esta version.
+            - Esta actualizacion no elimina ni reinicia la base local ni modifica la sincronizacion con Tiendanube.
           releaseDraft: false
           prerelease: false
           uploadUpdaterJson: true

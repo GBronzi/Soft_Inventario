@@ -15,6 +15,7 @@ import { Movimientos } from "@/pages/Movimientos";
 import { Onboarding } from "@/pages/Onboarding";
 import { ProductoDetalle } from "@/pages/ProductoDetalle";
 import { ProductoForm } from "@/pages/ProductoForm";
+import { Reportes } from "@/pages/Reportes";
 import { Tiendanube } from "@/pages/Tiendanube";
 import { Ventas } from "@/pages/Ventas";
 
@@ -33,6 +34,7 @@ const router = createHashRouter([
       { path: "/movimientos", element: <Movimientos /> },
       { path: "/ventas", element: <Ventas /> },
       { path: "/gastos", element: <Gastos /> },
+      { path: "/reportes", element: <Reportes /> },
       { path: "/contactos", element: <Contactos /> },
       { path: "/escaner", element: <Navigate replace to="/contactos" /> },
       { path: "/tiendanube", element: <Tiendanube /> },

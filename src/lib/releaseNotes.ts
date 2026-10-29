@@ -4,6 +4,24 @@ export interface ReleaseNoteSection {
 }
 
 const RELEASE_NOTES: Record<string, ReleaseNoteSection[]> = {
+  "1.3.0": [
+    {
+      title: "Reportes de ventas",
+      items: [
+        "Nueva ventana Reportes con ventas y unidades diarias, mensuales y anuales.",
+        "Compara el mes elegido con el mismo mes del año anterior y muestra los productos más vendidos.",
+        "Separa las ventas del programa y Tiendanube, además de Yves d'Orgeval, Árabes / demás marcas y Decant.",
+      ],
+    },
+    {
+      title: "Respaldo de gastos",
+      items: [
+        "Los gastos se guardan ahora en la base SQLite y quedan incluidos en los nuevos respaldos .db.",
+        "Al abrir Gastos o crear un respaldo, se importan una sola vez los registros anteriores del almacenamiento local.",
+        "Los respaldos creados con versiones anteriores no contienen gastos; antes de actualizar se recomienda exportarlos a CSV como copia adicional.",
+      ],
+    },
+  ],
   "1.2.11": [
     {
       title: "Catalogo",

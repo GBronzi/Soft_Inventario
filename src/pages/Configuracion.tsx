@@ -485,7 +485,7 @@ export function Configuracion() {
                <div className="relative space-y-4">
                   <div className="space-y-1">
                     <h3 className="font-black text-xl">Backup Local</h3>
-                    <p className="text-xs opacity-70">Haz una copia manual de tu base de datos SQLite ahora mismo.</p>
+                    <p className="text-xs opacity-70">Copia el inventario, las ventas y los gastos en un archivo SQLite.</p>
                   </div>
                   {backupStatus && (
                     <p role="status" className={`rounded-xl border px-3 py-2 text-xs font-semibold ${backupStatus.startsWith("Error") ? "border-rose-300/30 bg-rose-500/10 text-rose-100" : "border-white/20 bg-white/10 text-primary-foreground"}`}>

@@ -6,11 +6,10 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
+import { deleteGasto, getGastos, saveGasto } from "@/database/gastos";
 import { getResumenMensualMovimientos, MONTHLY_SALES_UPDATED_EVENT } from "@/database/queries";
 import { localDateKey, localMonthKey } from "@/lib/datetime";
 import type { GastoDetalle, GastoRegistro } from "@/types";
-
-const STORAGE_KEY = "soft_inventario_gastos";
 
 function getTodayDate() {
   return localDateKey();
@@ -18,32 +17,6 @@ function getTodayDate() {
 
 function createId() {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-}
-
-function readStoredGastos(): GastoRegistro[] {
-  if (typeof window !== "undefined" && window.localStorage) {
-    try {
-      const raw = window.localStorage.getItem(STORAGE_KEY);
-      if (!raw) return [];
-      const parsed = JSON.parse(raw);
-      return Array.isArray(parsed) ? parsed : [];
-    } catch {
-      return [];
-    }
-  }
-
-  if (typeof globalThis !== "undefined" && "localStorage" in globalThis) {
-    try {
-      const raw = globalThis.localStorage.getItem(STORAGE_KEY);
-      if (!raw) return [];
-      const parsed = JSON.parse(raw);
-      return Array.isArray(parsed) ? parsed : [];
-    } catch {
-      return [];
-    }
-  }
-
-  return [];
 }
 
 function formatCurrency(value: number) {
@@ -106,6 +79,9 @@ function buildCsvContent(gastos: GastoRegistro[], ventasMensuales: Record<string
 
 export function Gastos() {
   const [gastos, setGastos] = useState<GastoRegistro[]>([]);
+  const [gastosLoaded, setGastosLoaded] = useState(false);
+  const [savingGasto, setSavingGasto] = useState(false);
+  const [gastosError, setGastosError] = useState<string | null>(null);
   const [ventasMensuales, setVentasMensuales] = useState<Record<string, number>>({});
   const [salesRefresh, setSalesRefresh] = useState(0);
   const [selectedMonth, setSelectedMonth] = useState(() => localMonthKey());
@@ -115,8 +91,14 @@ export function Gastos() {
   const [tableMonth, setTableMonth] = useState("");
 
   useEffect(() => {
-    const storedGastos = readStoredGastos();
-    setGastos(storedGastos);
+    let active = true;
+    void getGastos().then((storedGastos) => {
+      if (!active) return;
+      setGastos(storedGastos);
+      setGastosLoaded(true);
+    }).catch((error: unknown) => {
+      if (active) setGastosError(`No se pudieron cargar los gastos: ${String(error)}`);
+    });
 
     function refreshVentas() {
       setSalesRefresh((value) => value + 1);
@@ -125,6 +107,7 @@ export function Gastos() {
     window.addEventListener(MONTHLY_SALES_UPDATED_EVENT, refreshVentas);
     window.addEventListener("storage", refreshVentas);
     return () => {
+      active = false;
       window.removeEventListener(MONTHLY_SALES_UPDATED_EVENT, refreshVentas);
       window.removeEventListener("storage", refreshVentas);
     };
@@ -169,13 +152,6 @@ export function Gastos() {
     [gastos, tableMonth],
   );
 
-  function persistGastos(nextGastos: GastoRegistro[]) {
-    setGastos(nextGastos);
-    if (typeof window !== "undefined") {
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(nextGastos));
-    }
-  }
-
   function resetForm() {
     setEditingId(null);
     setForm({ nombre: "", fecha: getTodayDate(), descripcion: "" });
@@ -202,8 +178,9 @@ export function Gastos() {
     );
   }
 
-  function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (!gastosLoaded || savingGasto) return;
     const cleanedItems = items.filter((item) => item.concepto.trim() || item.valor > 0);
     if (!form.nombre.trim() || cleanedItems.length === 0) return;
 
@@ -225,8 +202,17 @@ export function Gastos() {
     const nextGastos = editingId
       ? gastos.map((gasto) => (gasto.id === editingId ? gastoGuardado : gasto))
       : [gastoGuardado, ...gastos];
-    persistGastos(nextGastos);
-    resetForm();
+    setSavingGasto(true);
+    setGastosError(null);
+    try {
+      await saveGasto(gastoGuardado);
+      setGastos(nextGastos);
+      resetForm();
+    } catch (error) {
+      setGastosError(`No se pudo guardar el gasto: ${String(error)}`);
+    } finally {
+      setSavingGasto(false);
+    }
   }
 
   function handleEdit(gasto: GastoRegistro) {
@@ -240,10 +226,20 @@ export function Gastos() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
-  function handleDelete(gasto: GastoRegistro) {
+  async function handleDelete(gasto: GastoRegistro) {
+    if (!gastosLoaded || savingGasto) return;
     if (!window.confirm(`¿Eliminar el gasto "${gasto.nombre}"? Esta acción no se puede deshacer.`)) return;
-    persistGastos(gastos.filter((item) => item.id !== gasto.id));
-    if (editingId === gasto.id) resetForm();
+    setSavingGasto(true);
+    setGastosError(null);
+    try {
+      await deleteGasto(gasto.id);
+      setGastos(gastos.filter((item) => item.id !== gasto.id));
+      if (editingId === gasto.id) resetForm();
+    } catch (error) {
+      setGastosError(`No se pudo eliminar el gasto: ${String(error)}`);
+    } finally {
+      setSavingGasto(false);
+    }
   }
 
   function handleExportCsv() {
@@ -264,10 +260,13 @@ export function Gastos() {
           <h1 className="text-2xl font-black tracking-tight">Gastos del local</h1>
           <p className="text-sm text-muted-foreground">Controlá los egresos por mes, cargá ventas y calculá la ganancia real.</p>
         </div>
-        <Button onClick={handleExportCsv} type="button" variant="outline" className="rounded-xl">
+        <Button onClick={handleExportCsv} type="button" variant="outline" className="rounded-xl" disabled={!gastosLoaded}>
           <Download className="mr-2 size-4" /> Exportar CSV
         </Button>
       </div>
+
+      {gastosError && <p role="alert" className="border-l-2 border-destructive bg-destructive/10 px-4 py-3 text-sm text-foreground">{gastosError}</p>}
+      {!gastosLoaded && !gastosError && <p role="status" className="text-sm text-muted-foreground">Cargando gastos...</p>}
 
       <Card className="border-none bg-gradient-to-br from-amber-500/10 via-transparent to-transparent shadow-lg">
         <CardHeader>
@@ -277,7 +276,8 @@ export function Gastos() {
           <CardDescription>Podés cargar varios conceptos en un mismo gasto y sumar el total automáticamente.</CardDescription>
         </CardHeader>
         <CardContent>
-          <form onSubmit={handleSubmit} className="space-y-4">
+          <form onSubmit={(event) => void handleSubmit(event)} className="space-y-4">
+            <fieldset disabled={!gastosLoaded || savingGasto} className="min-w-0 space-y-4">
             <div className="grid gap-4 md:grid-cols-2">
               <div className="space-y-2">
                 <label className="text-sm font-semibold">Nombre del gasto</label>
@@ -328,6 +328,7 @@ export function Gastos() {
                 </Button>
               </div>
             </div>
+            </fieldset>
           </form>
         </CardContent>
       </Card>
@@ -455,10 +456,10 @@ export function Gastos() {
                       <TableCell className="text-right font-black">{formatCurrency(gasto.total)}</TableCell>
                       <TableCell>
                         <div className="flex justify-end gap-1">
-                          <Button type="button" variant="ghost" size="icon" onClick={() => handleEdit(gasto)} aria-label={`Modificar ${gasto.nombre}`} title="Modificar">
+                          <Button type="button" variant="ghost" size="icon" onClick={() => handleEdit(gasto)} disabled={savingGasto} aria-label={`Modificar ${gasto.nombre}`} title="Modificar">
                             <Pencil className="size-4" />
                           </Button>
-                          <Button type="button" variant="ghost" size="icon" onClick={() => handleDelete(gasto)} aria-label={`Eliminar ${gasto.nombre}`} title="Eliminar" className="text-destructive hover:text-destructive">
+                          <Button type="button" variant="ghost" size="icon" onClick={() => void handleDelete(gasto)} disabled={savingGasto} aria-label={`Eliminar ${gasto.nombre}`} title="Eliminar" className="text-destructive hover:text-destructive">
                             <Trash2 className="size-4" />
                           </Button>
                         </div>

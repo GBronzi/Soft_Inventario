@@ -4,7 +4,7 @@ import { appDataDir, join } from "@tauri-apps/api/path";
 import schemaSql from "@/database/schema.sql?raw";
 
 const DATABASE_URL = "sqlite:inventario_v4.db";
-const SCHEMA_VERSION = 8;
+const SCHEMA_VERSION = 9;
 
 let databasePromise: Promise<Database> | null = null;
 
@@ -314,6 +314,8 @@ export async function pingDatabase() {
 }
 
 export async function createPreUpdateBackup(version: string) {
+  const { ensureLegacyGastosMigrated } = await import("@/database/gastos");
+  await ensureLegacyGastosMigrated();
   const directory = await appDataDir();
   const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
   const safeVersion = version.replace(/[^a-zA-Z0-9.-]/g, "_");
