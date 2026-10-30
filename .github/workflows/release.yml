@@ -1,0 +1,47 @@
+name: Publicar actualización
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  release-windows:
+    permissions:
+      contents: write
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Instalar Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Instalar dependencias
+        run: npm ci
+
+      - name: Compilar, firmar y publicar
+        uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: "Inventario App ${{ github.ref_name }}"
+          releaseBody: |
+            ## Gastos
+            - Exportar CSV abre el selector para guardar el archivo y confirma el resultado.
+            - Los registros de gastos y sus respaldos se conservan sin cambios.
+
+            ## Catalogo
+            - El buscador prioriza el nombre o SKU exacto sobre coincidencias parciales de marca.
+            - No se modifica el stock ni la sincronizacion con Tiendanube.
+          releaseDraft: false
+          prerelease: false
+          uploadUpdaterJson: true

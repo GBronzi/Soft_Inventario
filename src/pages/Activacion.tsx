@@ -12,7 +12,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter }
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Link, useSearchParams } from "react-router-dom";
 import type { LicenseStatus } from "@/types";
 interface Props {
   initialStatus: LicenseStatus;
@@ -24,14 +23,13 @@ export function Activacion({ initialStatus, onActivated }: Props) {
   const [verifying, setVerifying] = useState(false);
   const [errorStatus, setErrorStatus] = useState<string | null>(initialStatus.message);
 
-  async function handleActivate(e?: FormEvent) {
-    if (e) e.preventDefault();
-    if (!key.trim()) return;
+  async function activateLicense(licenseKey: string) {
+    if (!licenseKey.trim()) return;
 
     setVerifying(true);
     setErrorStatus(null);
     try {
-      const response = await invoke<LicenseStatus>("activate_license", { licenseKey: key.trim() });
+      const response = await invoke<LicenseStatus>("activate_license", { licenseKey: licenseKey.trim() });
       if (response.isValid) {
         onActivated();
       } else {
@@ -43,18 +41,22 @@ export function Activacion({ initialStatus, onActivated }: Props) {
       setVerifying(false);
     }
   }
-  const [searchParams] = useSearchParams();
-const [autoAttempted, setAutoAttempted] = useState(false);
 
-  // Auto‑activate when URL contains ?code=...
+  function handleActivate(e: FormEvent) {
+    e.preventDefault();
+    void activateLicense(key);
+  }
+
   useEffect(() => {
-    const code = searchParams.get('code');
-    if (code && !autoAttempted) {
+    const url = new URL(window.location.href);
+    const hashQuery = url.hash.includes("?") ? url.hash.split("?")[1] : "";
+    const code = url.searchParams.get("code") ?? new URLSearchParams(hashQuery).get("code");
+
+    if (code) {
       setKey(code);
-      setAutoAttempted(true);
-      void handleActivate();
+      void activateLicense(code);
     }
-  }, [searchParams, autoAttempted]);
+  }, []);
 
   return (
     <div className="flex min-h-screen items-center justify-center p-6 bg-[oklch(var(--b1))] relative overflow-hidden">
@@ -121,9 +123,7 @@ const [autoAttempted, setAutoAttempted] = useState(false);
           </form>
 
           <div className="flex items-center gap-4 p-5 rounded-3xl bg-emerald-500/5 border border-emerald-500/10">
-              <Link to="/catalogo" className="rounded-2xl h-12 text-emerald-700 hover:bg-emerald-500/10 font-bold border border-emerald-500/20 flex items-center justify-center">
-                Explorar Catálogo
-              </Link>
+              <ShieldCheck className="size-8 shrink-0 text-emerald-600" />
               <div className="space-y-0.5">
                  <p className="text-[10px] font-black uppercase text-emerald-600 tracking-tighter">Seguridad Local Garantizada</p>
                  <p className="text-[10px] text-muted-foreground font-medium leading-tight">

@@ -1,33 +1,47 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
+import { getVersion } from "@tauri-apps/api/app";
 import { convertFileSrc } from "@tauri-apps/api/core";
-import { NavLink } from "react-router-dom";
 import { Info, Instagram, Mail, User } from "lucide-react";
 
 import { navigationItems } from "@/components/layout/navigation";
 import { getConfiguracionEmpresa } from "@/database/queries";
+import { updateLiquidGlassPointer } from "@/lib/liquidGlass";
 import type { ConfiguracionEmpresa } from "@/types";
 
 export function AppSidebar() {
   const [config, setConfig] = useState<ConfiguracionEmpresa | null>(null);
+  const [appVersion, setAppVersion] = useState("1.2.2");
+  const pathname = useSyncExternalStore(
+    (onStoreChange) => {
+      window.addEventListener("hashchange", onStoreChange);
+      return () => window.removeEventListener("hashchange", onStoreChange);
+    },
+    () => window.location.hash.replace(/^#/, "").split("?")[0] || "/dashboard",
+    () => "/dashboard",
+  );
 
   useEffect(() => {
     void getConfiguracionEmpresa().then(setConfig);
+    void getVersion().then(setAppVersion).catch(() => undefined);
   }, []);
 
   return (
-    <aside className="hidden w-72 h-screen sticky top-0 border-r border-border/50 bg-card/40 backdrop-blur-xl lg:flex flex-col animate-in fade-in slide-in-from-left duration-700">
+    <aside className="app-sidebar hidden w-72 h-screen sticky top-0 border-r border-border/50 bg-card/40 backdrop-blur-xl lg:flex flex-col animate-in fade-in slide-in-from-left duration-700">
       {/* Brand Header */}
-      <div className="py-10 px-6 flex flex-col items-center justify-center text-center space-y-4 border-b border-border/30">
+      <div className="app-sidebar-brand py-10 px-6 flex flex-col items-center justify-center text-center space-y-4 border-b border-border/30">
         {config?.logoPathLocal ? (
-          <div className="p-4 rounded-[2.5rem] bg-background/80 shadow-2xl border border-border/50 group transition-all hover:scale-105">
+          <div className="app-sidebar-logo group relative size-[150px] overflow-hidden rounded-[2rem] border border-white/30 bg-white/10 shadow-[0_18px_45px_-20px_rgba(0,0,0,0.65),inset_0_1px_1px_rgba(255,255,255,0.55),inset_0_-1px_1px_rgba(0,0,0,0.16)] ring-1 ring-white/10 backdrop-blur-2xl transition-all hover:scale-105">
             <img
               src={convertFileSrc(config.logoPathLocal)}
               alt="Logo"
-              className="h-20 w-20 object-contain"
+              className="h-full w-full rounded-[2rem] object-contain"
             />
+            <div aria-hidden="true" className="pointer-events-none absolute inset-0 rounded-[2rem] bg-gradient-to-br from-white/35 via-white/5 to-black/10 opacity-70 mix-blend-screen" />
+            <div aria-hidden="true" className="pointer-events-none absolute -left-5 -top-8 h-20 w-36 rotate-[-12deg] rounded-full bg-white/35 blur-2xl transition-transform duration-500 group-hover:translate-x-4" />
+            <div aria-hidden="true" className="pointer-events-none absolute inset-x-5 bottom-2 h-4 rounded-full bg-white/10 blur-md" />
           </div>
         ) : (
-          <div className="size-20 rounded-[2.5rem] bg-primary/10 flex items-center justify-center border border-primary/20 shadow-inner">
+          <div className="app-sidebar-logo size-[150px] rounded-[2rem] bg-primary/10 flex items-center justify-center border border-primary/20 shadow-inner">
              <span className="text-3xl font-black text-primary">S</span>
           </div>
         )}
@@ -41,22 +55,21 @@ export function AppSidebar() {
       </div>
 
       {/* Navigation */}
-      <div className="flex-1 overflow-y-auto custom-scrollbar p-4 space-y-1.5 pt-6">
+      <div className="app-sidebar-nav flex-1 overflow-y-auto custom-scrollbar p-4 space-y-1.5 pt-6">
         {navigationItems.map((item) => {
           const Icon = item.icon;
 
           return (
-            <NavLink
+            <a
               key={item.to}
-              to={item.to}
-              className={({ isActive }) =>
-                [
-                  "group flex items-center gap-4 rounded-2xl px-4 py-3.5 transition-all duration-300 relative overflow-hidden",
-                  isActive
-                    ? "bg-primary text-primary-foreground shadow-lg shadow-primary/20"
-                    : "text-muted-foreground hover:bg-muted/50 hover:text-foreground",
-                ].join(" ")
-              }
+              href={`#${item.to}`}
+              onPointerMove={updateLiquidGlassPointer}
+              className={[
+                  "liquid-sidebar-link group flex items-center gap-4 px-4 py-3.5",
+                  item.matches(pathname)
+                    ? "liquid-sidebar-link-active"
+                    : "text-muted-foreground",
+                ].join(" ")}
             >
               <div className="relative z-10 size-5 flex items-center justify-center shrink-0">
                  <Icon className="size-full transition-transform group-hover:scale-110" />
@@ -67,15 +80,12 @@ export function AppSidebar() {
                   {item.description}
                 </p>
               </div>
-              
-              {/* Subtle hover effect light */}
-              <div className="absolute inset-0 bg-white/5 opacity-0 group-hover:opacity-100 transition-opacity" />
-            </NavLink>
+            </a>
           );
         })}
 
         {/* Info & Contact Section */}
-        <div className="mx-2 mt-8 p-4 rounded-[2rem] bg-gradient-to-br from-primary/10 to-transparent border border-primary/10 space-y-4">
+        <div className="app-sidebar-info mx-2 mt-8 p-4 rounded-[2rem] bg-gradient-to-br from-primary/10 to-transparent border border-primary/10 space-y-4">
           <div className="space-y-2">
             <div className="flex items-center gap-2 text-primary">
               <Info className="size-4" />
@@ -128,9 +138,9 @@ export function AppSidebar() {
       </div>
 
       {/* Footer Info */}
-      <div className="p-6 border-t border-border/30">
+      <div className="app-sidebar-footer p-6 border-t border-border/30">
          <div className="p-4 rounded-2xl bg-muted/20 border border-border/50 text-center">
-            <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Versión 1.0.4 - Premium</p>
+            <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Versión {appVersion} - Premium</p>
             <p className="text-[8px] text-muted-foreground mt-1 opacity-50">Base Offline-First | RSA SECURE</p>
          </div>
       </div>
