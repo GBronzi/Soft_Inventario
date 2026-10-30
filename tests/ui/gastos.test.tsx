@@ -4,6 +4,8 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockGetResumenMensualMovimientos = vi.hoisted(() => vi.fn());
+const mockSaveDialog = vi.hoisted(() => vi.fn());
+const mockInvoke = vi.hoisted(() => vi.fn());
 const gastosDb = vi.hoisted(() => ({
   getGastos: vi.fn(),
   saveGasto: vi.fn(),
@@ -11,6 +13,8 @@ const gastosDb = vi.hoisted(() => ({
 }));
 
 vi.mock("@/database/gastos", () => gastosDb);
+vi.mock("@tauri-apps/plugin-dialog", () => ({ save: mockSaveDialog }));
+vi.mock("@tauri-apps/api/core", () => ({ invoke: mockInvoke }));
 
 vi.mock("@/database/queries", () => ({
   MONTHLY_SALES_UPDATED_EVENT: "soft_inventario_ventas_actualizadas",
@@ -35,6 +39,8 @@ beforeEach(() => {
   gastosDb.getGastos.mockResolvedValue([gastoRegistrado]);
   gastosDb.saveGasto.mockResolvedValue(undefined);
   gastosDb.deleteGasto.mockResolvedValue(undefined);
+  mockSaveDialog.mockResolvedValue("C:\\Users\\giuse\\Downloads\\gastos.csv");
+  mockInvoke.mockResolvedValue(undefined);
   mockGetResumenMensualMovimientos.mockImplementation(async (mes: string) => ({ mes, ventasNetas: mes === "2026-06" ? 300000 : 0 }));
   vi.spyOn(window, "scrollTo").mockImplementation(() => undefined);
 });
@@ -103,5 +109,33 @@ describe("Gastos", () => {
 
     expect(await screen.findByRole("alert")).toHaveProperty("textContent", expect.stringContaining("disco lleno"));
     expect(screen.getByDisplayValue("Internet")).toBeTruthy();
+  });
+
+  it("exporta todos los gastos con el dialogo y confirma el archivo guardado", async () => {
+    render(<Gastos />);
+    await screen.findByText("Alquiler mensual");
+
+    fireEvent.click(screen.getByRole("button", { name: "Exportar CSV" }));
+
+    await waitFor(() => expect(mockInvoke).toHaveBeenCalledWith("save_text_file", expect.objectContaining({
+      path: "C:\\Users\\giuse\\Downloads\\gastos.csv",
+      contents: expect.stringContaining('"Alquiler"'),
+    })));
+    expect(mockSaveDialog).toHaveBeenCalledWith(expect.objectContaining({ filters: [{ name: "Excel CSV", extensions: ["csv"] }] }));
+    expect(await screen.findByText("Archivo CSV guardado correctamente.")).toBeTruthy();
+  });
+
+  it("informa errores de guardado y no informa exito al cancelar", async () => {
+    mockInvoke.mockRejectedValueOnce(new Error("disco lleno"));
+    render(<Gastos />);
+    await screen.findByText("Alquiler mensual");
+
+    fireEvent.click(screen.getByRole("button", { name: "Exportar CSV" }));
+    expect(await screen.findByRole("alert")).toHaveProperty("textContent", expect.stringContaining("disco lleno"));
+
+    mockSaveDialog.mockResolvedValueOnce(null);
+    fireEvent.click(screen.getByRole("button", { name: "Exportar CSV" }));
+    await waitFor(() => expect(mockSaveDialog).toHaveBeenCalledTimes(2));
+    expect(screen.queryByText("Archivo CSV guardado correctamente.")).toBeNull();
   });
 });

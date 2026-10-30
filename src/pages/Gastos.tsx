@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
+import { save } from "@tauri-apps/plugin-dialog";
 import { CalendarDays, Download, Pencil, Plus, Receipt, Trash2, Wallet, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -82,6 +84,8 @@ export function Gastos() {
   const [gastosLoaded, setGastosLoaded] = useState(false);
   const [savingGasto, setSavingGasto] = useState(false);
   const [gastosError, setGastosError] = useState<string | null>(null);
+  const [exportStatus, setExportStatus] = useState<string | null>(null);
+  const [exporting, setExporting] = useState(false);
   const [ventasMensuales, setVentasMensuales] = useState<Record<string, number>>({});
   const [salesRefresh, setSalesRefresh] = useState(0);
   const [selectedMonth, setSelectedMonth] = useState(() => localMonthKey());
@@ -242,15 +246,24 @@ export function Gastos() {
     }
   }
 
-  function handleExportCsv() {
-    const csvContent = buildCsvContent(gastos, ventasMensuales);
-    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `gastos-${new Date().toISOString().slice(0, 10)}.csv`;
-    link.click();
-    URL.revokeObjectURL(url);
+  async function handleExportCsv() {
+    if (!gastosLoaded || exporting) return;
+    setExportStatus(null);
+    setGastosError(null);
+    setExporting(true);
+    try {
+      const path = await save({
+        defaultPath: `gastos-${getTodayDate()}.csv`,
+        filters: [{ name: "Excel CSV", extensions: ["csv"] }],
+      });
+      if (!path) return;
+      await invoke("save_text_file", { path, contents: `\uFEFF${buildCsvContent(gastos, ventasMensuales)}` });
+      setExportStatus("Archivo CSV guardado correctamente.");
+    } catch (error) {
+      setGastosError(`No se pudo exportar el CSV: ${String(error)}`);
+    } finally {
+      setExporting(false);
+    }
   }
 
   return (
@@ -260,12 +273,13 @@ export function Gastos() {
           <h1 className="text-2xl font-black tracking-tight">Gastos del local</h1>
           <p className="text-sm text-muted-foreground">Controlá los egresos por mes, cargá ventas y calculá la ganancia real.</p>
         </div>
-        <Button onClick={handleExportCsv} type="button" variant="outline" className="rounded-xl" disabled={!gastosLoaded}>
+        <Button onClick={() => void handleExportCsv()} type="button" variant="outline" className="rounded-xl" disabled={!gastosLoaded || exporting}>
           <Download className="mr-2 size-4" /> Exportar CSV
         </Button>
       </div>
 
       {gastosError && <p role="alert" className="border-l-2 border-destructive bg-destructive/10 px-4 py-3 text-sm text-foreground">{gastosError}</p>}
+      {exportStatus && <p role="status" className="text-sm text-foreground">{exportStatus}</p>}
       {!gastosLoaded && !gastosError && <p role="status" className="text-sm text-muted-foreground">Cargando gastos...</p>}
 
       <Card className="border-none bg-gradient-to-br from-amber-500/10 via-transparent to-transparent shadow-lg">

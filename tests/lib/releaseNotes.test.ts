@@ -22,4 +22,10 @@ describe("release notes", () => {
     expect(notes[0].items.join(" ")).toContain("Sincronizacion");
     expect(notes[1].items.join(" ")).toContain("token");
   });
+
+  it("incluye las correcciones de gastos y busqueda para la version 1.3.1", () => {
+    const notes = getReleaseNotesForVersion("v1.3.1");
+    expect(notes.map((section) => section.items.join(" ")).join(" ")).toContain("Exportar CSV");
+    expect(notes.map((section) => section.items.join(" ")).join(" ")).toContain("coincidencias exactas");
+  });
 });

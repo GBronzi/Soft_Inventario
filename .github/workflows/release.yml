@@ -35,18 +35,13 @@ jobs:
           tagName: ${{ github.ref_name }}
           releaseName: "Inventario App ${{ github.ref_name }}"
           releaseBody: |
-            ## Reportes de ventas
-            - Nueva ventana con importes y unidades por dia, mes y año.
-            - Comparacion con el mismo mes del año anterior y ranking de productos vendidos.
-            - Desglose por Programa/Tiendanube y por Yves d'Orgeval, Arabes / demas marcas y Decant.
+            ## Gastos
+            - Exportar CSV abre el selector para guardar el archivo y confirma el resultado.
+            - Los registros de gastos y sus respaldos se conservan sin cambios.
 
-            ## Respaldo de gastos
-            - Los gastos nuevos se guardan en SQLite y se incluyen en los siguientes respaldos .db.
-            - Los gastos anteriores se importan una sola vez desde el almacenamiento local al abrir Gastos o crear un respaldo.
-
-            ## Importante
-            - Los respaldos .db de versiones anteriores no contenian gastos. Se recomienda exportar Gastos a CSV antes de instalar esta version.
-            - Esta actualizacion no elimina ni reinicia la base local ni modifica la sincronizacion con Tiendanube.
+            ## Catalogo
+            - El buscador prioriza el nombre o SKU exacto sobre coincidencias parciales de marca.
+            - No se modifica el stock ni la sincronizacion con Tiendanube.
           releaseDraft: false
           prerelease: false
           uploadUpdaterJson: true

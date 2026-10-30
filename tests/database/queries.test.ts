@@ -285,6 +285,17 @@ describe("queries de inventario", () => {
     );
   });
 
+  it("prioriza el nombre exacto sobre coincidencias de marca al buscar en el catálogo", async () => {
+    mockDb.select.mockResolvedValueOnce([]);
+
+    await getCatalogoProductos({ search: "Eva", marca: "Yves D'Orgeval" });
+
+    expect(mockDb.select).toHaveBeenCalledWith(
+      expect.stringMatching(/ORDER BY CASE\s+WHEN LOWER\(TRIM\(p\.nombre\)\) = LOWER\(\$3\) THEN 0[\s\S]+ELSE 4\s+END, p\.nombre ASC/),
+      ["%Eva%", "Yves D'Orgeval", "Eva"],
+    );
+  });
+
   it("permite incluir variantes retiradas solo para conciliacion de Tiendanube", async () => {
     mockDb.select.mockResolvedValue([]);
 

@@ -220,6 +220,18 @@ export async function getCatalogoProductos(filters: CatalogoFilters = {}): Promi
   }
 
   const whereSql = whereClauses.length > 0 ? `WHERE ${whereClauses.join(" AND ")}` : "";
+  let searchOrderSql = "";
+  if (filters.search?.trim()) {
+    bindValues.push(filters.search.trim());
+    const searchIndex = bindValues.length;
+    searchOrderSql = `CASE
+      WHEN LOWER(TRIM(p.nombre)) = LOWER($${searchIndex}) THEN 0
+      WHEN LOWER(TRIM(i.sku)) = LOWER($${searchIndex}) THEN 1
+      WHEN LOWER(p.nombre) LIKE LOWER($${searchIndex} || '%') THEN 2
+      WHEN LOWER(p.nombre) LIKE LOWER('%' || $${searchIndex} || '%') THEN 3
+      ELSE 4
+    END, `;
+  }
 
   return db.select<CatalogoItemRow[]>(
     `SELECT
@@ -261,7 +273,7 @@ export async function getCatalogoProductos(filters: CatalogoFilters = {}): Promi
       FROM inventario i
       INNER JOIN productos p ON p.id = i.producto_id
       ${whereSql}
-      ORDER BY p.nombre ASC, i.capacidad_medida ASC, i.variante ASC`,
+      ORDER BY ${searchOrderSql}p.nombre ASC, i.capacidad_medida ASC, i.variante ASC`,
     bindValues,
   ).then(rows => rows.map(row => ({
     ...row,

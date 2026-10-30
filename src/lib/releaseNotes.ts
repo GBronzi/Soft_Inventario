@@ -4,6 +4,22 @@ export interface ReleaseNoteSection {
 }
 
 const RELEASE_NOTES: Record<string, ReleaseNoteSection[]> = {
+  "1.3.1": [
+    {
+      title: "Gastos",
+      items: [
+        "Exportar CSV abre la ventana para elegir dónde guardar el archivo y confirma el resultado.",
+        "Los gastos y respaldos existentes se conservan sin cambios.",
+      ],
+    },
+    {
+      title: "Catálogo",
+      items: [
+        "El buscador muestra primero las coincidencias exactas de nombre o SKU, antes de las coincidencias de marca.",
+        "No se modifican el stock ni la sincronización con Tiendanube.",
+      ],
+    },
+  ],
   "1.3.0": [
     {
       title: "Reportes de ventas",
